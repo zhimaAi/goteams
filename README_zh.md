@@ -8,59 +8,54 @@
 
 ## 🎯 产品定位
 
-GoTeams 是新一代 AI研发协作平台，让 Agent 成为你的团队成员。深度融合 AI 智能体，内置 Agent 员工，支持 Agent 自我进化。让每个团队都能轻松驾驭从需求到交付的全流程。
+GoTeams 是新一代 AI研发协作平台，让 Agent 成为你的团队成员。深度融合 AI 智能体，内置 Agent 员工。让每个团队都能轻松驾驭从需求到交付的全流程。
+
+## 🌍 免费体验网址：[goteams.cn](https://goteams.cn)
 
 ## ✨ 核心特性
 
-### 🤖 AI Agent 协作
+### 🤖 需求/缺陷 - 灵活定制，精细管理
 
-- **Agent 员工**：智能体出现在指派下拉菜单中，像分配任务给同事一样分配给 Agent。
+支持自定义工作项类型、字段、流程、视图，完美适配不同团队的研发管理规范。
 
-- **自主执行能力**：Agent 主动领取并推进工作，完整记录入队、领取、启动、完成或失败。
+![需求/缺陷](./assets/imgs/feature_1_zh.png)
 
-- **主动报告与推送**：Agent 遇到阻塞主动通知，通过实时推送获取进度更新。
+### 🤖 工单管理 - 多端协同，全流程闭环管理
 
-- **统一活动时间线**：人类和 Agent 的所有操作在统一时间线上可见，无缝协作。
+内置工单项目模板快速启动。支持邀请用户主动创建工单、用户可见工单状态可在线留言催单、预制各类视图快速查看对应工单
 
-### 📋 工作项管理
+![工单管理](./assets/imgs/feature_2_zh.png)
 
-- **灵活的工作项类型**：支持需求和缺陷，可自定义字段和流程。
+### 🤖 项目管理 - 适配各类敏捷瀑布管理场景
 
-- **看板与列表双视图**：拖拽式看板管理和列表视图，灵活切换。
+标准化敏捷和瀑布管理模型，从产品规划到执行跟踪的全流程管理，每个环节都有丰富的工具支撑，帮助你把控风险，按质量交付项目成果。
 
-- **迭代管理**：创建和管理迭代，关联工作项，跟踪迭代进度。
+![项目管理](./assets/imgs/feature_3_zh.png)
 
-- **批量操作**：支持批量修改状态、优先级、处理人、迭代，以及批量导出和删除。
+### 🤖 进度管理 - 研发效能数据化、目标透明化
 
-### ⚙️ 自动化协作
+专业的统计报表，帮助你跟踪与复盘研发流程，不断提升研发质量。实现从项目到任务的多层级规划，实时追踪执行进度
 
-- **自动化规则引擎**：通过自动化规则，让重复性的协作流程自动执行，释放团队生产力。
+![进度管理](./assets/imgs/feature_4_zh.png)
 
-- **条件触发执行**：支持条件分支和执行操作配置，当满足条件时自动触发指定操作。
+### 🤖 知识管理 - 协同共享，让知识流转更高效
 
-### 🏢 团队与权限管理
+周报、会议记录、需求文档、研发方案、测试用例等各类项目知识高效沉淀，帮助团队向知识型组织迈进
 
-- **多级权限体系**：支持工作空间管理员、普通成员和自定义角色，精细管控功能权限与数据权限。
+![知识管理](./assets/imgs/feature_5_zh.png)
 
-- **团队工作查看范围**：支持全部成员、部分成员、仅自己三种数据可见性配置。
+### 🤖 自动化流程 - 全流程智能自动化，高效运转
 
-- **角色权限配置**：预设和自定义角色，按模块分配功能权限，数据权限独立控制。
+通过自动化规则引擎，让重复性的协作流程自动执行，自动处理。内置钉钉飞书企微 webhook 推送，重要信息实时同步。
 
-### 🛠️ 技能库
+![自动化流程](./assets/imgs/feature_6_zh.png)
 
-- **可复用的技能定义**：将解决方案保存为标准技能，代码、配置和上下文打包在一起。
+### 🤖 Agent 协作 - 从创作到实现，AI 无处不在
 
-- **全团队共享**：编写一次，团队中每个 Agent 都能使用，技能库随时间不断积累。
+内置 agent 技能，一键安装，快速启动。实现 agent 与系统的无缝衔接，快速提升研发生产力。
 
-- **复合增长**：技能越用越多，越用越强，形成团队知识资产。
-
-## 🛸 UI
-
-- 🌍 **免费体验网址**：[goteams.cn](https://goteams.cn)
-- 🖼️ **系统截图**：
-
-<p align="center">   <img src="./assets/imgs/ui_1_zh.png" alt="1" width="49%" />   <img src="./assets/imgs/ui_2_zh.png" alt="2" width="49%" /> </p>
-<p align="center">   <img src="./assets/imgs/ui_3_zh.png" alt="3" width="49%" />   <img src="./assets/imgs/ui_4_zh.png" alt="4" width="49%" /> </p>
+![Agent 协作](./assets/imgs/feature_7_zh.png)
+![Agent 协作](./assets/imgs/feature_8_zh.png)
 
 ## 🏢 商业版安装与运维指南（goteamsctl）
 
@@ -73,14 +68,14 @@ GoTeams 是新一代 AI研发协作平台，让 Agent 成为你的团队成员�
 商业版以自解压 `.run` 文件交付，按**是否需要联网获取 Docker 镜像**分为两类**独立的安装包**，分别打包、分别分发：
 
 | 安装包 | 文件名 | 体积 | 网络要求 | 适用场景 |
-|--------|--------|------|----------|----------|
+| --- | --- | --- | --- | --- |
 | **标准包（在线）** | `goteams-commercial-cn-<version>.run` | 中（含 Docker 运行时，不含镜像） | 安装/升级时须能访问镜像仓库，在线 `docker compose pull` | 服务器可上外网 |
 | **离线包** | `goteams-commercial-cn-<version>-offline.run` | 大（含 Docker 运行时 + 全部镜像） | **全程无需外网**，安装/升级时直接 `docker load` 包内 `payload/images/images.tar.gz` | 内网、隔离、无外网出口环境 |
 
 最新版本 **v0.0.30** 下载地址：
 
-- 标准包（在线）：https://github.com/zhimaAi/goteams-license/releases/download/v0.0.30/goteams-commercial-cn-v0.0.30.run
-- 离线包：https://github.com/zhimaAi/goteams-license/releases/download/v0.0.30/goteams-commercial-cn-v0.0.30-offline.run
+- 标准包（在线）：<https://github.com/zhimaAi/goteams-license/releases/latest/download/goteams-commercial-cn.run>
+- 离线包：<https://github.com/zhimaAi/goteams-license/releases/latest/download/goteams-commercial-cn-offline.run>
 
 > 两类包的**安装、升级、卸载命令完全一致**——安装器检测到 `payload/images/images.tar.gz` 存在即走离线 `docker load` 并跳过镜像拉取。
 >
@@ -88,7 +83,7 @@ GoTeams 是新一代 AI研发协作平台，让 Agent 成为你的团队成员�
 
 #### 1.1 解压后的包目录结构
 
-```
+```text
 goteams-commercial-cn-<version>[-offline]/
 ├── goteamsctl                  # 控制工具（安装/升级/服务/日志/卸载）
 ├── manifest.json               # 版本与文件清单
@@ -106,7 +101,7 @@ goteams-commercial-cn-<version>[-offline]/
 ### 2. 环境要求
 
 | 项目 | 要求 |
-|------|------|
+| --- | --- |
 | 系统 | Linux amd64（真实 Linux 服务器或虚拟机；**不支持 WSL** 等不暴露 `/sys/class/dmi` 的环境，设备码依赖硬件标识） |
 | Docker | 已安装并可用（`docker compose version` 正常）时，安装直接跳过内置运行时；未安装的裸机由 `install` 自动安装包内 `payload/runtime/`，此时额外要求 **root**、**systemd（PID 1）**、**iptables 或 nft**（静态包不含防火墙用户态工具） |
 | 磁盘 | 安装分区剩余 ≥ 10 GB |
@@ -130,9 +125,10 @@ sudo ./goteamsctl install   # 安装
 1. **预检查**：平台（linux/amd64）、安装包完整性（SHA256SUMS + manifest 白名单）、磁盘空间（≥10 GB）、内存（≥2 GB）、硬件标识（`/sys/class/dmi`）。
 2. **Docker 运行时准备**：主机已有可用的 Docker Engine + Compose V2 时打印 `bundled runtime install skipped` 并跳过；否则安装内置运行时。
 3. **交互提问**（直接回车接受默认值）：
-    - `timezone`：时区，默认 `Asia/Shanghai`
-    - `web port (site)`：站点端口，默认 `8080`（自动检测占用并要求重试）
-    - `proceed with installation`：输入 `y` 确认开始
+   - `timezone`：时区，默认 `Asia/Shanghai`
+   - `web port (site)`：站点端口，默认 `8080`（自动检测占用并要求重试）
+   - `site url`：生成链接（自动化模板、API 文档等）使用的外部访问地址，默认 `http://127.0.0.1:<端口>`，可直接回车沿用
+   - `proceed with installation`：输入 `y` 确认开始
 4. **完成输出**：站点地址、默认管理员 `admin`（使用对应环境包内置初始密码，首次登录强制修改）、授权状态。
 
 #### 3.1 其他命令
@@ -140,6 +136,7 @@ sudo ./goteamsctl install   # 安装
 ```bash
 sudo ./goteamsctl status                 # 查看容器状态、已安装版本与授权状态（输出 /api/system/license/status 的 JSON）
 sudo ./goteamsctl upgrade                # 下载升级包后进入执行升级，升级时服务会短暂中断，升级时保留数据
+sudo ./goteamsctl set-site-url <url>     # 修改生成链接使用的外部站点地址（写入 .env 并重建 goteams 容器）
 sudo ./goteamsctl start                  # 按顺序启动：postgres/redis → goteams（含迁移）→ web
 sudo ./goteamsctl stop                   # 停止全部服务（数据卷保留）
 sudo ./goteamsctl restart                # stop + start
@@ -177,7 +174,7 @@ sudo docker compose --project-name goteams-commercial \
 ### 5. 常见问题
 
 | 现象 | 原因与处理 |
-|------|-----------|
+| --- | --- |
 | `already looks installed; use upgrade instead` | 目标目录已存在 `state.json`，是升级场景，改用 `goteamsctl upgrade` |
 | `docker engine is not reachable` | Docker 已安装但守护进程未运行：`systemctl start docker`（安装器不会替你启动一个已有的 Docker） |
 | `docker compose v2 is required` | 主机有引擎但缺插件；`install` 会自动补齐，手动执行时可 `sudo ./goteamsctl install-docker` |
@@ -217,10 +214,16 @@ sudo docker compose --project-name goteams-commercial \
 
 ---
 
-见 [UpdateLog.md](./UpdateLog.md)。
+- 2026.9.08
+  - 自动化规则支持跨项目复制
+- 2026.9.07
+  - 主导航的样式优化-增加【更多】菜单
+- 2026.9.04
+  - 新增项目时支持选择项目模板
+  - 工作项模板支持联动显示
 
 ## 协议
 
 ---
 
-本项目遵循 AGPL 3.0 开源协议，完整的许可证文本请查看 [LICENSE](./LICENSE) 文件。
+本项目遵循 Apache License 2.0 开源协议，完整的许可证文本请查看 [LICENSE](./LICENSE) 文件。
