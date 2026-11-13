@@ -1,0 +1,15 @@
+// Shared gantt metrics and palette.
+// The task list and the timeline are separate components but must line up row
+// for row, so the row/header heights live here instead of being repeated.
+// Colours reuse the app tokens where one exists; sizes stay as LESS values
+// because they take part in arithmetic below.
+@primary-color: #1677ff;
+@row-hover-bg: #eaf2ff;
+@today-bg: #fff8f0;
+@today-color: #fa8c16;
+@weekend-bg: var(--app-surface-muted);
+@border-color: var(--app-border);
+@surface: var(--app-surface);
+@head-height: 56px;
+@head-group-height: 22px;
+@row-height: 40px;

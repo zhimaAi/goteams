@@ -1,0 +1,32 @@
+@import "./variables.less";
+
+// 客户端文档引用（#[文件名] 与正文里的本地路径）统一的胶囊样式。
+// 会话记录、日志详情和产出文档正文共用一份，避免每个页面各写一遍。
+.markdown-doc-reference {
+  display: inline-block;
+  max-width: 220px;
+  padding: 1px 8px;
+  border-radius: 100px;
+  color: rgba(0, 0, 0, 0.9);
+  background: #f2f2f2;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  vertical-align: -3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// 能跳转的引用（链接到本任务的产出文档）要看起来可点。
+a.markdown-doc-reference {
+  color: @primary-color;
+  background: @primary-bg-light;
+  cursor: pointer;
+}
+
+a.markdown-doc-reference:hover,
+a.markdown-doc-reference:focus-visible {
+  background: @info-border-light;
+  text-decoration: underline;
+}

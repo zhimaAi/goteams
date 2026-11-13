@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Feishu">
+  <circle cx="16" cy="16" r="16" fill="#3370FF" />
+  <text
+    x="16"
+    y="22"
+    text-anchor="middle"
+    font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif"
+    font-size="16"
+    font-weight="600"
+    fill="#FFFFFF"
+  >飞</text>
+</svg>

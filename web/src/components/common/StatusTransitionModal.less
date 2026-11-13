@@ -1,0 +1,230 @@
+:global(.status-transition-modal .ant-modal-content) {
+  padding: 0;
+  overflow: hidden;
+}
+
+.transition-loading {
+  display: flex;
+  height: min(420px, calc(100vh - 64px));
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.transition-layout {
+  display: flex;
+  height: min(420px, calc(100vh - 64px));
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--transition-bg);
+}
+
+.status-pane {
+  flex: 0 0 168px;
+  min-width: 0;
+  padding: 16px;
+  overflow-y: auto;
+  border-radius: 8px 0 0 8px;
+  background: var(--transition-pane-bg);
+}
+
+.status-option {
+  display: flex;
+  width: 100%;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px solid var(--transition-border);
+  border-radius: 16px;
+  background: var(--transition-bg);
+  color: var(--transition-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.status-option:last-child {
+  margin-bottom: 0;
+}
+
+.status-option:hover {
+  background: var(--transition-fill-hover);
+}
+
+.status-option.active {
+  border-color: var(--transition-primary);
+  background: var(--transition-bg);
+  color: var(--transition-primary);
+}
+
+.status-option:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.status-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.current-mark {
+  flex: 0 0 auto;
+  font-size: 12px;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.field-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 24px 24px 16px;
+  background: var(--transition-bg);
+}
+
+.field-scroll {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  margin-right: -8px;
+  padding-right: 8px;
+  overflow-y: auto;
+}
+
+.field-row {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.field-row:last-child {
+  margin-bottom: 0;
+}
+
+.field-row--comment {
+  min-height: 96px;
+  max-height: 176px;
+  flex: 1 1 176px;
+}
+
+.field-row label {
+  flex: 0 0 72px;
+  color: var(--transition-text-secondary);
+  font-size: 14px;
+  line-height: 32px;
+}
+
+.field-row .req {
+  color: var(--transition-error);
+}
+
+.field-control {
+  min-width: 0;
+  flex: 1;
+}
+
+.field-control :deep(.ant-select),
+.field-control :deep(.ant-picker),
+.field-control :deep(.ant-input-number),
+.field-control :deep(.ant-input) {
+  width: 100%;
+}
+
+.field-control :deep(.assignee-select) {
+  border-color: var(--transition-border);
+  border-radius: var(--transition-radius);
+}
+
+.field-control :deep(.assignee-select--open) {
+  border-color: var(--transition-primary);
+}
+
+.field-row--comment .field-control {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.field-row--comment :deep(.comment-rich-text-input) {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.field-row--comment :deep(.comment-editor),
+.field-row--comment :deep(.comment-editor .editor-shell) {
+  width: 100%;
+}
+
+.field-row--comment :deep(.comment-editor .editor-shell) {
+  min-height: 96px;
+}
+
+.field-row--comment :deep(.comment-editor .editor-body) {
+  max-height: 132px;
+}
+
+.footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.footer :deep(.ant-btn) {
+  min-width: 80px;
+}
+
+@media (max-width: 640px) {
+  .transition-layout {
+    flex-direction: column;
+  }
+
+  .status-pane {
+    display: flex;
+    width: 100%;
+    flex: 0 0 auto;
+    gap: 8px;
+    padding: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-radius: 8px 8px 0 0;
+  }
+
+  .status-option {
+    width: auto;
+    min-width: 136px;
+    flex: 0 0 auto;
+    margin-bottom: 0;
+  }
+
+  .field-pane {
+    padding: 16px;
+  }
+
+  .field-row {
+    gap: 8px;
+  }
+
+  .footer {
+    margin-top: 16px;
+  }
+}
