@@ -1,0 +1,67 @@
+volumes:
+  pg_data:
+    driver: local
+  redis_data:
+    driver: local
+
+services:
+  postgres:
+    image: registry.cn-hangzhou.aliyuncs.com/chatwiki/postgres:20250513
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: ${TIMEZONE}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - ${POSTGRES_PORT}:5432
+
+  redis:
+    image: registry.cn-hangzhou.aliyuncs.com/chatwiki/redis:5.0
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    restart: always
+    volumes:
+      - redis_data:/data
+    environment:
+      TZ: ${TIMEZONE}
+    ports:
+      - ${REDIS_PORT}:6379
+
+  goteams:
+    image: registry.cn-hangzhou.aliyuncs.com/chatwiki/golang:1.25.1-bookworm
+    working_dir: /var/www/goteams
+    command: ${CORE_SERVICE}
+    restart: always
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ../:/var/www/goteams/
+    environment:
+      GOPROXY: https://goproxy.cn,direct
+      TZ: ${TIMEZONE}
+      DEV: ${COMPOSE_PROJECT_NAME}
+    ports:
+      - ${CORE_PORT}:8080
+
+  web:
+    image: registry.cn-hangzhou.aliyuncs.com/chatwiki/nginx:1.27.0-bookworm
+    entrypoint:
+      - /bin/sh
+      - /var/www/goteams/docker/bash/start-web.sh
+    command:
+      - nginx
+      - -g
+      - daemon off;
+    depends_on:
+      - goteams
+    restart: always
+    volumes:
+      - ./nginx/web.conf:/etc/nginx/conf.d/web.conf
+      - ../:/var/www/goteams/
+    environment:
+      TZ: ${TIMEZONE}
+    ports:
+      - "${WEB_PORT}:8080"

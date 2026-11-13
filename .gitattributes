@@ -1,0 +1,4 @@
+docker/bash/start-web.sh text eol=lf
+docker/commercial/start-web.sh text eol=lf
+docker/commercial/nginx/web.conf text eol=lf
+docker/commercial/runtime/systemd/* text eol=lf

@@ -1,0 +1,68 @@
+.assignee-select {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 32px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  background: var(--app-surface);
+  cursor: text;
+}
+// Reserve the strip the absolutely positioned clear button occupies, so tags never sit under it.
+// Only applied while the button is visible, and widening the padding can only push tags into more
+// rows — never fewer — so the visibility condition cannot oscillate.
+.assignee-select--clearable { padding-right: 26px; }
+
+.assignee-select--small { min-height: 24px; padding: 1px 4px; }
+.assignee-select--open { border-color: #3157e2; box-shadow: 0 0 0 2px rgb(49 87 226 / 10%); }
+.assignee-select--disabled { background: #f5f5f5; color: var(--app-text-secondary); cursor: not-allowed; }
+.assignee-select--disabled .assignee-select__input { cursor: not-allowed; }
+.assignee-select--compact { flex-wrap: nowrap; cursor: pointer; }
+.assignee-select__compact-value { min-width: 0; flex: 1; overflow: hidden; color: var(--app-text); font-size: 12px; line-height: 28px; text-overflow: ellipsis; white-space: nowrap; }
+.assignee-select__compact-value--empty { color: var(--app-text-secondary); }
+.assignee-select__arrow { flex: 0 0 auto; color: var(--app-text-secondary); font-size: 10px; transition: transform 0.15s ease; }
+.assignee-select--open .assignee-select__arrow { transform: rotate(180deg); }
+.assignee-select__saving { display: inline-flex; align-items: center; padding: 0 4px; color: var(--app-text-secondary); }
+.assignee-select__tag { display: inline-flex; height: 20px; max-width: 112px; flex: 0 1 auto; align-items: center; gap: 4px; padding: 1px 4px; border-radius: 3px; background: #f0f2f5; white-space: nowrap; }
+// A member still assigned but no longer on the project: greyed out on purpose, no extra label.
+// They can be removed but never re-picked, so the candidate list drops them.
+.assignee-select__tag--departed { color: var(--app-text-secondary); opacity: 0.65; }
+.assignee-select__tag--departed .assignee-select__tag-avatar { background: #bfbfbf; filter: grayscale(100%); }
+.assignee-select__tag-avatar { flex: 0 0 16px; background: #1677ff; font-size: 10px; }
+.assignee-select__tag-name { min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; }
+.assignee-select__remove { display: inline-flex; flex: 0 0 auto; padding: 0; border: 0; background: transparent; color: var(--app-text-secondary); cursor: pointer; font-size: 10px; }
+.assignee-select__input { width: 24px; min-width: 24px; flex: 1 1 auto; border: 0; outline: 0; background: transparent; color: var(--app-text); font-size: 12px; }
+// Clear-all: vertically centred against the whole control, so it stays put no matter how many
+// rows the tags wrap into. Absolute here; the compact variant keeps it in flow next to the arrow.
+.assignee-select__clear { position: absolute; right: 6px; top: 50%; display: inline-flex; align-items: center; padding: 0; border: 0; background: transparent; color: var(--app-text-secondary); cursor: pointer; font-size: 12px; opacity: 0.45; transform: translateY(-50%); transition: opacity 0.15s ease; }
+.assignee-select__clear:hover { opacity: 1; }
+.assignee-select--compact .assignee-select__clear { position: static; flex: 0 0 auto; transform: none; }
+.assignee-select__dropdown { width: 100%; max-height: 360px; overflow: hidden; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-surface); box-shadow: 0 6px 20px rgb(24 43 80 / 14%); }
+.assignee-select__search { display: flex; height: 36px; align-items: center; gap: 8px; margin: 8px; padding: 0 10px; border: 1px solid #3157e2; border-radius: 4px; color: var(--app-text-secondary); }
+.assignee-select__search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--app-text); }
+.assignee-select__dropdown--compact .assignee-select__search { height: 38px; margin: 12px; border-color: var(--app-border); }
+.assignee-select__dropdown--compact .assignee-select__search:focus-within { border-color: #3157e2; box-shadow: 0 0 0 2px rgb(49 87 226 / 10%); }
+.assignee-select__dropdown--compact .assignee-select__search input { order: 1; }
+.assignee-select__dropdown--compact .assignee-select__search > .anticon { order: 2; }
+.assignee-select__options { max-height: 308px; overflow-y: auto; padding-bottom: 4px; }
+.assignee-select__group-title { padding: 8px 12px 4px; color: var(--app-text-secondary); font-size: 12px; }
+.assignee-select__option { display: flex; width: 100%; min-height: 36px; align-items: center; gap: 8px; padding: 4px 12px; border: 0; background: transparent; color: var(--app-text); cursor: pointer; text-align: left; }
+.assignee-select__option:hover, .assignee-select__option--checked { background: #f5f7fa; }
+.assignee-select__checkbox { display: inline-flex; width: 16px; height: 16px; flex: 0 0 16px; align-items: center; justify-content: center; border: 1px solid #c8cfda; border-radius: 4px; color: #fff; font-size: 10px; }
+.assignee-select__option--checked .assignee-select__checkbox { border-color: #3157e2; background: #3157e2; }
+.assignee-select__avatar-wrap { display: inline-flex; width: 22px; height: 22px; flex: 0 0 22px; }
+.assignee-select__avatar { display: inline-flex; width: 22px; height: 22px; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; background: #1677ff; color: #fff; font-size: 11px; }
+.assignee-select__avatar img { width: 100%; height: 100%; object-fit: cover; }
+.assignee-select__identity { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 6px; }
+.assignee-select__name, .assignee-select__username { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assignee-select__username { color: var(--app-text-secondary); font-size: 12px; }
+mark { padding: 0; background: transparent; color: #e57b23; }
+.assignee-select__star { display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; color: #8c95a8; }
+.assignee-select__star--active { color: #faad14; }
+.assignee-select__star--disabled { cursor: not-allowed; opacity: 0.4; }
+.assignee-select__empty { padding: 24px 12px; color: var(--app-text-secondary); font-size: 13px; text-align: center; }

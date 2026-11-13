@@ -1,0 +1,116 @@
+# GoTeams 开源版专用 Compose（由 goteamsctl 统一调用，禁止手工 docker compose 改动）
+# 统一调用方式：docker compose --project-name goteams-commercial --env-file /opt/goteams/config/.env -f <release>/docker/docker-compose.yml
+# 卷名显式固定，不随解压目录和 project name 变化；升级只切换 GOTEAMS_RELEASE 指向，数据卷/instance_id 保持不变。
+# 应用配置内嵌于 goteams 二进制（CN：-tags commercial_embed，源 config_embed_cn.ini）；
+# ${VAR:-默认} 中的 postgres/redis 默认密码必须与 config_embed_cn.ini 保持一致。
+volumes:
+  pg_data:
+    name: goteams-commercial-pg-data
+    driver: local
+  redis_data:
+    name: goteams-commercial-redis-data
+    driver: local
+
+services:
+  postgres:
+    image: registry.cn-hangzhou.aliyuncs.com/chatwiki/postgres:20250513
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-goteams}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ddyxBQFkrjs9llYnAQ4eqVJNG5B9jTp7}
+      POSTGRES_DB: ${POSTGRES_DB:-goteams}
+      TZ: ${TIMEZONE:-Asia/Shanghai}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    # 数据库只绑定本机回环，禁止直接暴露公网
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-15432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-goteams} -d ${POSTGRES_DB:-goteams}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: registry.cn-hangzhou.aliyuncs.com/chatwiki/redis:5.0
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-ddyxBQFkrjs9llYnAQ4eqVJNG5B9jTp7}
+    restart: always
+    volumes:
+      - redis_data:/data
+    environment:
+      TZ: ${TIMEZONE:-Asia/Shanghai}
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-16379}:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a '${REDIS_PASSWORD:-ddyxBQFkrjs9llYnAQ4eqVJNG5B9jTp7}' ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  goteams:
+    image: registry.cn-hangzhou.aliyuncs.com/chatwiki/golang:1.25.1-bookworm
+    working_dir: /var/www/goteams
+    # 开源版执行编译产物二进制，不挂载源码；配置内嵌于二进制，无 config_pro.ini
+    command: ["./goteams", "-IsDev=false"]
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # 后端仅挂载二进制和数据目录，不挂载源码与配置文件
+      - ${GOTEAMS_RELEASE}/bin/goteams:/var/www/goteams/goteams:ro
+      - ${GOTEAMS_ROOT}/data:/var/www/goteams/data
+      - ${GOTEAMS_ROOT}/logs:/var/www/goteams/logs
+      # 设备码读取宿主机稳定标识；只读挂载，升级和容器重建均不改变来源
+      - /etc/machine-id:/etc/machine-id:ro
+      - /sys/class/dmi/id:/sys/class/dmi/id:ro
+    environment:
+      TZ: ${TIMEZONE:-Asia/Shanghai}
+      # .env 中可选的 GOTEAMS_<段>_<键> 覆盖（老安装迁移/运维微调），空值忽略内嵌默认
+      GOTEAMS_WEBSERVICE_SITE_URL: ${GOTEAMS_WEBSERVICE_SITE_URL:-}
+      GOTEAMS_REDIS_PASSWORD: ${GOTEAMS_REDIS_PASSWORD:-}
+      GOTEAMS_POSTGRES_USER: ${GOTEAMS_POSTGRES_USER:-}
+      GOTEAMS_POSTGRES_PASSWORD: ${GOTEAMS_POSTGRES_PASSWORD:-}
+      GOTEAMS_POSTGRES_DB: ${GOTEAMS_POSTGRES_DB:-}
+      GOTEAMS_ACCOUNT_ADMIN_PASSWORD: ${GOTEAMS_ACCOUNT_ADMIN_PASSWORD:-}
+      GOTEAMS_LICENSE_ACTIVATION_URL: ${GOTEAMS_LICENSE_ACTIVATION_URL:-}
+      # 对象存储可选。未设置时沿用内嵌 enable=false，文件落在本机 data/uploads。
+      GOTEAMS_OSS_S3_ENABLE: ${GOTEAMS_OSS_S3_ENABLE:-}
+      GOTEAMS_OSS_S3_ENDPOINT: ${GOTEAMS_OSS_S3_ENDPOINT:-}
+      GOTEAMS_OSS_S3_ACCESS_KEY: ${GOTEAMS_OSS_S3_ACCESS_KEY:-}
+      GOTEAMS_OSS_S3_SECRET_KEY: ${GOTEAMS_OSS_S3_SECRET_KEY:-}
+      GOTEAMS_OSS_S3_BUCKET: ${GOTEAMS_OSS_S3_BUCKET:-}
+      GOTEAMS_OSS_S3_USE_SSL: ${GOTEAMS_OSS_S3_USE_SSL:-}
+      GOTEAMS_OSS_S3_URL_STYLE: ${GOTEAMS_OSS_S3_URL_STYLE:-}
+      GOTEAMS_OSS_S3_CUSTOM_DOMAIN: ${GOTEAMS_OSS_S3_CUSTOM_DOMAIN:-}
+      GOTEAMS_OSS_S3_PUBLIC_ENDPOINT: ${GOTEAMS_OSS_S3_PUBLIC_ENDPOINT:-}
+      # 主密钥由客户自行生成；不配置时沿用明文会话存储。
+      GOTEAMS_SESSION_ENCRYPTION_MASTER_KEY: >-
+        ${GOTEAMS_SESSION_ENCRYPTION_MASTER_KEY:-}
+    ports:
+      - "${CORE_PORT:-8081}:8080"
+
+  web:
+    image: registry.cn-hangzhou.aliyuncs.com/chatwiki/nginx:1.27.0-bookworm
+    entrypoint:
+      - /bin/sh
+      - /etc/goteams/start-web.sh
+    command:
+      - nginx
+      - -g
+      - daemon off;
+    depends_on:
+      - goteams
+    restart: always
+    volumes:
+      - ${GOTEAMS_RELEASE}/docker/start-web.sh:/etc/goteams/start-web.sh:ro
+      - ${GOTEAMS_RELEASE}/docker/nginx/web.conf:/etc/nginx/conf.d/web.conf:ro
+      # web 仅挂载编译产物和上传数据（只读）
+      - ${GOTEAMS_RELEASE}/web:/var/www/goteams/web:ro
+      - ${GOTEAMS_ROOT}/data:/var/www/goteams/data:ro
+    environment:
+      TZ: ${TIMEZONE:-Asia/Shanghai}
+    ports:
+      - "${WEB_PORT:-8080}:8080"

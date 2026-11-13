@@ -1,0 +1,381 @@
+/**
+ * GoTeams 设计系统 - 全局变量
+ * 基于 Figma 设计稿 GLOBAL_VARS 抽取
+ * 所有可视化组件必须通过本文件引用设计 Token，禁止硬编码颜色/尺寸
+ */
+
+// ============================================================================
+// 颜色系统
+// ============================================================================
+
+// 主色 - 功能/主色
+@primary-color: #3157E2;           // 功能/主色03 - 主要按钮、强调元素
+@primary-color-alt: #2475FC;       // 功能/主色 - 替代主色
+@primary-color-strong: #0D68FF;    // 功能/主色02 - 强调交互态
+@primary-color-light: #3582FB;     // 主色01 - 渐变文字、H1 强调色
+
+// 辅助色
+@auxiliary-color: #6524FC;         // 功能/辅助01 - 辅助元素
+
+// 主色扩展
+@primary-bg-light: #E5EFFF;        // 主色01扩展/底色 - 标签背景
+@primary-hover: #659DFC;           // 主色01扩展/悬停 - 交互态
+@primary-selected: #F5F9FF;        // 主色01扩展/选中 - 选中背景
+
+// 辅助底色
+@info-bg: #ECF3FF;                 // 信息背景
+@info-bg-2: #F6F9FF;               // 信息背景2
+@info-bg-3: #EEF2FF;               // 信息背景3
+@info-border-light: #D5E5FF;       // 主色01扩展/描边
+@info-border: #C7DAF8;             // 主色01扩展/描边2
+
+// 功能色 - 成功
+@success-color: #21A665;           // 功能/成功
+@success-color-alt: #52C41A;       // 成功色变体
+@success-bg: #389E0D;              // 成功背景
+
+// 功能色 - 警告
+@warning-color: #FF9900;           // 功能/警告
+@warning-color-alt: #FA8C16;       // 警告色变体
+
+// 功能色 - 危险
+@danger-color: #FF4D4F;            // 危险色
+@danger-color-alt: #F85E5E;        // 危险色变体
+@danger-color-strong: #CF1322;     // 危险强调
+
+// 中性色 - 白底
+@neutral-white-10: #FFFFFF;        // 中性色(白底)/10
+@neutral-white-9: #FAFAFA;         // 中性色(白底)/09 - 默认背景
+@neutral-white-8: #FFFFFF;
+@neutral-white-7: #F0F0F0;         // 中性色(白底)/07 - 分隔线
+@neutral-white-6: #D9D9D9;         // 中性色(白底)/06 - 边框
+@neutral-white-5: #BFBFBF;         // 占位
+@neutral-white-4: #8C8C8C;         // 中性色(白底)/04 - 弱化文字
+@neutral-white-3: #595959;         // 中性色(白底)/03 - 次要文字
+@neutral-white-2: #262626;         // 中性色(白底)/02 - 主要文字
+
+// 中性色 - 颜色偏向（蓝灰）
+@neutral-blue-1: #3A4559;          // 中性色(颜色偏向)/03 - 描述文字
+@neutral-blue-2: #646A73;          // 中性灰
+@neutral-blue-3: #95A0B5;          // 提示文字
+@neutral-blue-4: #D8DDE5;          // 中性色(颜色偏向)/06 - 弱化边框
+@neutral-blue-5: #EDEFF2;          // 中性色(颜色偏向)/08 - 弱化背景
+@neutral-blue-6: #8C95A8;          // 弱化文字
+@neutral-blue-7: #7C8597;          // 占位文字
+@neutral-blue-8: #1F2329;          // 强调文字
+
+// 深色
+@dark-1: #222B39;                  // Footer 背景
+@dark-2: #172033;                  // Logo 文字
+@dark-3: #1F1F1F;                  // 主文字
+
+// 终端深色
+@terminal-bg: #24344E;             // 终端主背景
+@terminal-header: #202A3A;         // 终端头部
+@terminal-border: #2F4870;         // 终端边框
+@terminal-bottom: #1A2537;         // 终端底部
+@terminal-text: #AAB2C1;           // 终端次要文字
+@terminal-text-2: #B7C0CF;         // 终端说明文字
+@terminal-text-3: #A9BBFF;         // 终端信息文字
+@terminal-success: #B6F478;        // 终端成功文字
+@terminal-active: #356ECC;         // 终端高亮按钮
+@terminal-circle: #C7DAF8;         // 终端圆形按钮
+
+// RGBA 透明色
+@transparent-black-45: rgba(0, 0, 0, 0.45);    // 文字遮罩
+@transparent-black-88: rgba(0, 0, 0, 0.88);    // 主文字
+@transparent-white-12: rgba(255, 255, 255, 0.12);  // 玻璃态背景
+@transparent-white-26: rgba(255, 255, 255, 0.26);  // 玻璃态边框
+@transparent-white-48: rgba(255, 255, 255, 0.48);  // 半透明白
+@transparent-white-52: rgba(255, 255, 255, 0.52);  // 玻璃态文字
+@transparent-white-65: rgba(255, 255, 255, 0.65);  // 玻璃态弱化文字
+@transparent-white-70: rgba(255, 255, 255, 0.7);   // 玻璃态次要文字
+@transparent-white-90: rgba(255, 255, 255, 0.9);   // 玻璃态强文字
+@transparent-white: rgba(255, 255, 255, 0);       // 完全透明
+
+// 浮层阴影颜色
+@overlay-soft: rgba(23, 35, 60, 0.04);
+@overlay-strong: rgba(27, 53, 147, 0.16);
+@overlay-button: rgba(5, 105, 255, 0.06);
+
+// 终端按钮阴影颜色
+@terminal-shadow: rgba(40, 67, 111, 0.16);
+
+// 紧急状态背景
+@urgent-bg: #FFF1F0;
+@urgent-border: rgba(255, 77, 79, 0.13);
+@processing-bg: #FFF7E6;
+@processing-border: rgba(250, 140, 22, 0.13);
+
+// 4 步引导 - 步骤标签
+@step-tag-bg: #6381EC;                       // 步骤标签背景
+@step-tag-border: #AEBCEF;                   // 步骤标签描边
+@divider-white-16: rgba(255, 255, 255, 0.16); // 玻璃卡分割线
+
+// 图标容器底色（功能卡 48×48 图标）
+@icon-bg-light: #E5F3FF;
+
+// 提交时间线（产品演示数据卡）
+@commit-tag-border: #9EAFF0;                 // feat 标签描边
+@commit-tag-purple-bg: #F9F0FF;              // test 标签背景
+@commit-tag-purple-border: #EFDBFF;          // test 标签描边
+@commit-tag-purple-text: #722ED1;            // test 标签文字
+@dark-blue-text: #182B50;                    // 深蓝标题文字
+
+// 产品能力展示（产品能力展示模块专用）
+@capability-title: #17213D;                  // 能力标题文字
+@capability-desc: #66718C;                   // 能力描述文字
+@capability-num-bg: #E8EDFF;                 // 编号圆背景
+@capability-selected-border: #B0CDFC;        // 选中项描边
+@capability-btn-text: #142C7D;               // 侧栏按钮文字
+@capability-icon-bg: #F3F6FF;                // 右侧图标容器默认背景
+
+// Hero 次按钮（预约演示）
+@hero-btn-outline-border: #ADCCFF;           // 半透明白底描边颜色
+
+// ============================================================================
+// 渐变
+// ============================================================================
+
+// 白底遮罩渐变 - 表格底部渐隐
+@gradient-white-fade: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0) 100%);
+// 白底反向渐变 - 顶部透明到底部白色
+@gradient-white-fade-bottom: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 1) 62%);
+// 蓝底淡渐变 - 工作项截图背景
+@gradient-blue-light: linear-gradient(180deg, rgba(185, 206, 246, 1) 0%, rgba(185, 206, 246, 0) 100%);
+// 蓝底更淡渐变 - 表格底部
+@gradient-blue-very-light: linear-gradient(180deg, rgba(225, 236, 255, 0) 0%, rgba(225, 236, 255, 1) 100%);
+// Agent 卡片渐变
+@gradient-agent-card: linear-gradient(180deg, rgba(240, 245, 255, 1) 0%, rgba(255, 255, 255, 1) 16%);
+// Agent 协作圆形渐变
+@gradient-agent-circle: linear-gradient(180deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0.8) 100%);
+// 135 度渐变（保留用于胶囊标签）
+@gradient-capsule: linear-gradient(135deg, transparent 0%, transparent 100%);
+// 终端底部进度条渐变（蓝→青→绿）
+@gradient-progress: linear-gradient(90deg, rgba(46, 122, 240, 1) 0%, rgba(57, 164, 216, 1) 62%, rgba(82, 196, 26, 1) 100%);
+// 产品能力侧栏渐变（设计稿 #2929:2964 静态态）
+@gradient-capability-sidebar: linear-gradient(157deg, #3D64ED 0%, #3157E2 48%, #142C7D 100%);
+
+// ============================================================================
+// 字体系统
+// ============================================================================
+
+// 字体族
+@font-family-cn: 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+@font-family-en: 'Inter', 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+@font-family-mono: 'Cousine', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+@font-family-base: @font-family-cn, @font-family-en;
+
+// 字号
+@font-size-h1: 56px;            // H1 主标题
+@font-size-extra-large: 36px;   // 特大号
+@font-size-1: 24px;             // 一级
+@font-size-subtitle: 20px;      // 副标题
+@font-size-body: 18px;          // 正文
+@font-size-3: 16px;             // 三级
+@font-size-4: 14px;             // 四级 / 常规
+@font-size-5: 12px;             // 五级
+@font-size-6: 11px;             // 六级
+@font-size-7: 10px;             // 七级
+
+// 字重
+@font-weight-regular: 400;
+@font-weight-medium: 500;
+@font-weight-semibold: 600;
+@font-weight-bold: 700;
+
+// 行高
+@line-height-h1: 68px;
+@line-height-extra-large: 44px;
+@line-height-1: 32px;
+@line-height-subtitle: 30px;
+@line-height-body: 32px;
+@line-height-3: 24px;
+@line-height-4: 22px;
+@line-height-5: 20px;
+@line-height-6: 18.86px;
+@line-height-7: 17px;
+@line-height-8: 16px;
+@line-height-9: 14px;
+
+// 字间距
+@letter-spacing-tight: -0.0514em;
+@letter-spacing-medium: -0.0195em;
+@letter-spacing-normal: -0.0107em;
+@letter-spacing-wide: 0.04em;
+@letter-spacing-2: 0.0059em;
+@letter-spacing-3: 0.0117em;
+
+// ============================================================================
+// 圆角
+// ============================================================================
+
+@border-radius-xs: 4px;
+@border-radius-sm: 6px;
+@border-radius-md: 8px;
+@border-radius-lg: 10px;
+@border-radius-xl: 12px;
+@border-radius-2xl: 16px;
+@border-radius-3xl: 20px;
+@border-radius-4xl: 24px;
+@border-radius-5xl: 32px;
+@border-radius-pill: 999px;   // 胶囊
+
+// ============================================================================
+// 阴影
+// ============================================================================
+
+// 按钮阴影 - 主色按钮发光
+@shadow-button: 0px 4px 24px 0px rgba(27, 39, 87, 0.12);
+// 描边按钮阴影
+@shadow-outline-button: 0px 2px 0px 0px rgba(5, 105, 255, 0.06);
+// 描边白底按钮阴影
+@shadow-outline-white: 0px 2px 0px 0px rgba(250, 250, 250, 1);
+// 毛玻璃卡片阴影 - 8px 模糊
+@shadow-glass: 0px 8px 24px 0px rgba(27, 53, 147, 0.16);
+// 毛玻璃卡片阴影 - 6px 模糊
+@shadow-glass-strong: 0px 12px 24px 0px rgba(27, 53, 147, 0.16);
+// 浮层卡片阴影
+@shadow-overlay: 0px 4px 56px 0px rgba(27, 66, 115, 0.12);
+// 浮层组合阴影 - 含 backdrop blur
+@shadow-overlay-blur: 0px 6px 20px 0px rgba(23, 35, 60, 0.04), 0px 8px 24px 0px rgba(27, 53, 147, 0.16);
+// 终端阴影
+@shadow-terminal: 0px 8.88px 35.53px 0px rgba(0, 0, 0, 0.16);
+// 上层投影 - Ant Design 风格
+@shadow-upper: 0px 8px 10px -5px rgba(0, 0, 0, 0.08), 0px 16px 24px 2px rgba(0, 0, 0, 0.04), 0px 6px 30px 5px rgba(0, 0, 0, 0.05);
+// 主按钮大阴影
+@shadow-cta: 0px 16px 28px 0px rgba(27, 53, 147, 0.24);
+// 卡片柔和阴影
+@shadow-card: 0px 6px 32px 0px rgba(37, 69, 119, 0.16);
+// 截图大阴影
+@shadow-screenshot: 0px 4px 32px 0px rgba(40, 80, 156, 0.16);
+// Agent 圆形卡片阴影
+@shadow-agent-circle: 0px 8px 48px 0px rgba(27, 53, 147, 0.16);
+// 终端内圆形按钮阴影
+@shadow-circle-button: 0px 5px 40px 0px rgba(40, 67, 111, 0.16);
+// 模糊椭圆装饰
+@shadow-blur-ellipse: 0px 4px 8px 0px rgba(0, 0, 0, 0.06);
+
+// ============================================================================
+// 毛玻璃（backdrop-filter）
+// ============================================================================
+
+@blur-glass: blur(8px);
+@blur-glass-strong: blur(6px);
+@blur-ellipse: blur(24px);
+
+// ============================================================================
+// 间距
+// ============================================================================
+
+@spacing-2: 2px;
+@spacing-4: 4px;
+@spacing-5: 5px;
+@spacing-6: 6px;
+@spacing-8: 8px;
+@spacing-10: 10px;
+@spacing-12: 12px;
+@spacing-14: 14px;
+@spacing-16: 16px;
+@spacing-18: 18px;
+@spacing-20: 20px;
+@spacing-24: 24px;
+@spacing-32: 32px;
+@spacing-40: 40px;
+@spacing-48: 48px;
+@spacing-64: 64px;
+@spacing-96: 96px;
+
+// ============================================================================
+// 尺寸 - 通用控件
+// ============================================================================
+
+@control-height-sm: 24px;
+@control-height-md: 30px;
+@control-height-lg: 52px;
+@control-height-xl: 72px;
+
+@button-sm-padding: 4px 16px;
+@button-md-padding: 5px 16px;
+@button-lg-padding: 7px 16px;
+@button-xl-padding: 8px 16px;
+
+// ============================================================================
+// 断点
+// ============================================================================
+
+@screen-xs: 480px;
+@screen-sm: 576px;
+@screen-md: 768px;
+@screen-lg: 992px;
+@screen-xl: 1200px;
+@screen-xxl: 1600px;
+@screen-xxxl: 1920px;
+
+// ============================================================================
+// 布局 - 官网首页专用
+// ============================================================================
+
+@homepage-max-width: 1920px;
+@homepage-content-width: 1240px;
+@homepage-nav-height: 60px;
+
+// ============================================================================
+// 响应式断点与媒体查询（PC / 小屏 PC / 平板 / 手机 H5）
+// ============================================================================
+
+// 断点值
+@bp-pc-lg: 1280px;   // 大屏 PC 下限（完整还原 1920 设计稿）
+@bp-pc-md: 960px;    // 小屏 PC 下限
+@bp-pad: 640px;      // 平板下限
+
+// 媒体查询（用法：@media @mq-h5 { ... }）
+@mq-pc-sm: ~"screen and (min-width: 1280px) and (max-width: 1439px)"; // 窄 PC（轻微缩放）
+@mq-below-lg: ~"screen and (max-width: 1279px)";                      // 非大屏（堆叠布局）
+@mq-pad: ~"screen and (min-width: 640px) and (max-width: 959px)";     // 平板
+@mq-h5: ~"screen and (max-width: 959px)";                             // 窄屏通用（平板竖屏 + 手机）
+@mq-mobile: ~"screen and (max-width: 639px)";                         // 手机 H5
+
+// 流式侧向留白：1920 设计稿下精确等于 312px，窄屏自动收缩（最小 32px）
+@homepage-side-padding: ~"max(32px, calc((100% - 1296px) / 2))";
+// 导航栏流式留白：1920 设计稿下精确等于 280px
+@navbar-side-padding: ~"max(24px, calc((100% - 1360px) / 2))";
+// 页脚流式留白：1920 设计稿下精确等于 340px
+@footer-side-padding: ~"max(24px, calc((100% - 1240px) / 2))";
+
+// 导航栏毛玻璃（固定顶部半透明磨砂效果）
+@navbar-glass-bg: rgba(255, 255, 255, 0.72);            // 半透明白底
+@navbar-glass-blur: blur(12px) saturate(180%);          // 磨砂模糊 + 饱和度增强
+@navbar-glass-border: rgba(240, 240, 240, 0.8);         // 半透明底部分割线
+@homepage-hero-height: 700px;
+@homepage-section-padding-y: 80px;
+
+// 模块固定高度（参考设计稿，按新版模块顺序排列）
+@homepage-section-requirement-height: 806px;   // 需求/缺陷
+@homepage-section-ticket-height: 870px;        // 工单管理
+@homepage-section-project-height: 870px;       // 项目管理
+@homepage-section-progress-height: 806px;      // 进度管理
+@homepage-section-knowledge-height: 806px;     // 知识管理
+@homepage-section-automation-height: 806px;    // 自动化流程
+@homepage-section-agent-height: 800px;         // Agent 协作
+@homepage-section-deploy-height: 562px;        // 私有部署
+@homepage-section-capability-height: 842px;    // 产品能力展示
+
+
+// 9 个模块固定高度（参考设计稿）
+@homepage-section-workitem-height: 806px;
+@homepage-section-automation-height: 806px;
+@homepage-section-agent-height: 800px;
+@homepage-section-execution-height: 806px;
+@homepage-section-skill-height: 806px;
+@homepage-section-guide-height: 884px;
+
+// ============================================================================
+// 动画
+// ============================================================================
+
+@animation-duration-fast: 0.15s;
+@animation-duration-base: 0.3s;
+@animation-duration-slow: 0.5s;
+@animation-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+@animation-ease-out: cubic-bezier(0.0, 0, 0.2, 1);
