@@ -127,4 +127,4 @@ We welcome you to contact us for help, or to share suggestions that help us impr
 
 ---
 
-This project follows the Apache License 2.0 open source license. See the [LICENSE](./LICENSE) file for the full license text.
+This project is released under the **GoTeams Community Source-Available License 1.0** — source-available, but not an OSI-approved open source license. Use, modification, and distribution are free within the free thresholds (no more than 50 active users and no more than 1000 GB of storage), and usage beyond them requires a prior commercial license. See the [LICENSE](./LICENSE) file for the full text. Commercial licensing: fox@chatwiki.com.
