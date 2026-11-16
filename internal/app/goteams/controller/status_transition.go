@@ -17,16 +17,22 @@ import (
 
 type transitionCustomFieldValues map[string]any
 
+type workItemStatusActionRequest struct {
+	MappingId      int `json:"mapping_id" binding:"gt=0"`
+	SourceStatusId int `json:"source_status_id" binding:"gt=0"`
+}
+
 type transitionWorkItemStatusRequest struct {
-	StatusId         int                         `json:"status_id"`
-	Comment          string                      `json:"comment"`
-	ImageFileIds     []int                       `json:"image_file_ids"`
-	AssigneeIds      *[]int                      `json:"assignee_ids"`
-	VersionId        *int                        `json:"version_id"`
-	Priority         *int                        `json:"priority"`
-	PlannedStartDate *int64                      `json:"planned_start_date"`
-	PlannedEndDate   *int64                      `json:"planned_end_date"`
-	CustomFields     transitionCustomFieldValues `json:"custom_fields"`
+	StatusAction     *workItemStatusActionRequest `json:"status_action"`
+	StatusId         int                          `json:"status_id"`
+	Comment          string                       `json:"comment"`
+	ImageFileIds     []int                        `json:"image_file_ids"`
+	AssigneeIds      *[]int                       `json:"assignee_ids"`
+	VersionId        *int                         `json:"version_id"`
+	Priority         *int                         `json:"priority"`
+	PlannedStartDate *int64                       `json:"planned_start_date"`
+	PlannedEndDate   *int64                       `json:"planned_end_date"`
+	CustomFields     transitionCustomFieldValues  `json:"custom_fields"`
 }
 
 func toTransitionWorkItemStatusModel(c *gin.Context, workspaceID, workItemID int, req transitionWorkItemStatusRequest) business.TransitionWorkItemStatusModel {
@@ -34,7 +40,12 @@ func toTransitionWorkItemStatusModel(c *gin.Context, workspaceID, workItemID int
 	if customFields == nil {
 		customFields = transitionCustomFieldValues{}
 	}
+	var action *business.WorkItemStatusActionModel
+	if req.StatusAction != nil {
+		action = &business.WorkItemStatusActionModel{MappingId: req.StatusAction.MappingId, SourceStatusId: req.StatusAction.SourceStatusId}
+	}
 	return business.TransitionWorkItemStatusModel{
+		StatusAction:     action,
 		AdminId:          c.GetInt(`adminId`),
 		UserId:           c.GetInt(`userId`),
 		WorkspaceId:      cast.ToString(workspaceID),
@@ -86,7 +97,11 @@ func TransitionWorkItemStatus(c *gin.Context) {
 
 func abortStatusTransitionError(c *gin.Context, lang string, err error) {
 	switch {
-	case errors.Is(err, business.ErrRequirementNotFound), errors.Is(err, business.ErrPlanningNotFound):
+	case errors.Is(err, business.ErrStatusActionConflict):
+		abortConflict(c, lib_i18n.Show(lang, define.MsgStatusActionStale))
+	case errors.Is(err, business.ErrStatusActionWorkspace):
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgStatusActionInvalid), "status_action.workspace", err)
+	case errors.Is(err, business.ErrRequirementNotFound), errors.Is(err, business.ErrPlanningNotFound), errors.Is(err, business.ErrStatusActionNotFound):
 		abortNotFound(c, lib_i18n.Show(lang, define.MsgRequirementNotFound))
 	case errors.Is(err, business.ErrStatusTransitionForbidden):
 		abortForbidden(c, lib_i18n.Show(lang, define.MsgForbidden))

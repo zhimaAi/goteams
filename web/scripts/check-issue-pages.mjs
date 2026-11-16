@@ -411,11 +411,14 @@ const columnContext = reactive({
     value: Object.fromEntries(
       ["requirement", "defect"].map((type) => [
         type,
-        ["id", "title", "status", "version"].map((key, sort_order) => ({
-          key,
-          enabled: 1,
-          sort_order,
-        })),
+        [
+          "id",
+          "title",
+          "status",
+          "version",
+          "priority",
+          ...(type === "defect" ? ["severity_id"] : []),
+        ].map((key, sort_order) => ({ key, enabled: 1, sort_order })),
       ]),
     ),
   },
@@ -433,6 +436,7 @@ const columnModel = new Function(
   const t = (key) => key;
   const agingEnabled = { value: false };
   const slaEnabled = { value: false };
+  const statusActionsEnabled = { value: false };
   const columnWidths = {};
   const columnWidth = (type, key, fallback) => key === "template" ? 220 : fallback;
   const editableCellProps = () => ({});
@@ -457,6 +461,12 @@ for (const type of ["requirement", "defect"]) {
   assert.equal(fields[templateIndex].label, "settings_template");
   assert.equal(columnModel.tableCols.value[templateIndex].key, "template");
   assert.equal(columnModel.tableCols.value[templateIndex].width, 220);
+  const columns = columnModel.tableCols.value.map((column) => column.key);
+  if (type === "defect") {
+    assert.equal(columns[columns.indexOf("priority") + 1], "severity_id");
+  } else {
+    assert.equal(columns.includes("severity_id"), false);
+  }
 
   columnContext.listPreferences.fields = fields.map((field) => ({
     ...field,
@@ -477,6 +487,47 @@ for (const type of ["requirement", "defect"]) {
   assert.equal(columnModel.tableCols.value[1].fixed, undefined);
   columnContext.frozenColumnIndex.value = -1;
 }
+
+const severityRow = { id: 12, type: "defect", severity_id: 0 };
+const severityWrites = [];
+const severityEditor = new Function("record", "writes", `
+  const editingCell = { value: null };
+  const savingSeverityRows = new Set();
+  const workspaceMetadata = { value: { defect: { severities: [
+    { id: 5, label: "Serious", color: "#ff8c00" }
+  ] } } };
+  const wsId = { value: "1" };
+  const requirements = { value: [record] };
+  const childrenMap = { value: {} };
+  const canEditRecord = () => !record.readOnly;
+  const fieldEditable = () => !record.fieldLocked;
+  const cloneEditValue = (value) => value;
+  const clearEditing = () => { editingCell.value = null; };
+  const updateRequirement = async (_wsId, _id, update) => { writes.push({...update}); };
+  const patchLoadedWorkItem = (_items, _children, _id, update) => Object.assign(record, update);
+  const showWorkItemUpdateSuccess = () => {};
+  const t = (key) => key;
+  ${boardSource.slice(boardSource.indexOf("  function isEditing("), boardSource.indexOf("  function customFieldValue("))}
+  ${boardSource.slice(boardSource.indexOf("  async function saveInline(record"), boardSource.indexOf("  // Save assignees on every change"))}
+  return { editableCellProps, saveInline };
+`)(severityRow, severityWrites);
+const severityCell = () =>
+  severityEditor.editableCellProps(severityRow, "severity_id");
+severityRow.readOnly = true;
+assert.deepEqual(severityCell(), {});
+severityRow.readOnly = false;
+severityRow.fieldLocked = true;
+assert.deepEqual(severityCell(), {});
+severityRow.fieldLocked = false;
+severityCell().onClick();
+await severityEditor.saveInline(severityRow, "severity_id", 5);
+assert.equal(severityRow.severity_name, "Serious");
+assert.equal(severityRow.severity_color, "#ff8c00");
+severityCell().onClick();
+await severityEditor.saveInline(severityRow, "severity_id", 0);
+assert.deepEqual(severityWrites, [{ severity_id: 5 }, { severity_id: 0 }]);
+assert.equal(severityRow.severity_name, "");
+assert.equal(severityRow.severity_color, "");
 
 const defaultTabsSource = boardSource.match(
   /const boardTabs = \[[\s\S]*?\n  \];/,
@@ -732,6 +783,8 @@ const context = {
   status: value(undefined),
   priorities: value([]),
   priority: value(undefined),
+  severityId: value(undefined),
+  severityOptions: value([]),
   fieldConfigs: value([]),
   categories: value([]),
   customFields: value([]),
@@ -750,6 +803,14 @@ pending.get("old")({ requirement: { statuses: [{ id: 1, name: "old" }] } });
 await oldRequest;
 assert.equal(context.statuses.value[0].id, 2);
 assert.deepEqual(templateScopes, ["new"]);
+assert.equal(context.severityId.value, undefined);
+context.type.value = "defect";
+const defectRequest = options.loadOptions();
+pending.get("new")({
+  defect: { severities: [{ id: 3, is_default: 0 }, { id: 4, is_default: 1 }] },
+});
+await defectRequest;
+assert.equal(context.severityId.value, 4);
 assert.deepEqual(
   buildCategoryOptions(
     [

@@ -1038,7 +1038,9 @@ func currentDepartmentParentTx(tx *sql.Tx, departmentId int) int {
 // departmentParentFormsCycleTx 判断把 departmentId 挂到 newParent 下是否会成环：从 newParent 上溯能否回到 departmentId。
 func departmentParentFormsCycleTx(tx *sql.Tx, adminId, departmentId, newParent int) (bool, error) {
 	current := newParent
-	for depth := 0; current != 0 && depth <= DepartmentMaxDepth+1; depth++ {
+	// 通讯录同步保留既有的防环遍历上限。
+	const maxAncestorChecks = 12
+	for checked := 0; current != 0 && checked < maxAncestorChecks; checked++ {
 		if current == departmentId {
 			return true, nil
 		}

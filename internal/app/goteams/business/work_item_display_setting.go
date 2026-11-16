@@ -31,7 +31,7 @@ var (
 	// ErrWorkItemDisplaySettingInvalid indicates an invalid display setting payload.
 	ErrWorkItemDisplaySettingInvalid = errors.New("invalid work item display setting")
 	detailBuiltinFieldKeys           = map[string]bool{
-		"status": true, "priority": true, "version": true, "category": true, "assignee": true,
+		"status": true, "priority": true, "severity_id": true, "version": true, "category": true, "assignee": true,
 		"planned_start_date": true, "planned_end_date": true,
 		"created_at": true, "created_by": true,
 		"estimated_work_hours": true, "work_progress": true,
@@ -162,9 +162,9 @@ func SaveWorkItemDisplaySetting(model WorkItemDisplaySettingModel) error {
 	return err
 }
 
-// InitializeDisplaySettingStatus adds a new status using the current enabled detail fields when a setting exists.
-func InitializeDisplaySettingStatus(adminId int, workspaceId, typeKey string, statusId int) error {
-	defaultFields, err := enabledDetailFieldKeys(adminId, workspaceId, typeKey, nil)
+// 新状态和对应的详情字段配置在同一事务写入。
+func initializeDisplaySettingStatus(tx *sql.Tx, adminId int, workspaceId, typeKey string, statusId int) error {
+	defaultFields, err := enabledDetailFieldKeys(adminId, workspaceId, typeKey, tx)
 	if err != nil {
 		return err
 	}
@@ -175,7 +175,7 @@ func InitializeDisplaySettingStatus(adminId int, workspaceId, typeKey string, st
 	_, err = msql.RawExec(define.Postgres, `UPDATE `+define.TableWorkItemDisplaySettings+`
 		SET status_fields_json = jsonb_set(COALESCE(NULLIF(status_fields_json, ''), '{}')::jsonb, ARRAY[$1], $2::jsonb, true)::text,
 			updated_at = $3
-		WHERE admin_id = $4 AND workspace_id = $5 AND type_key = $6`, nil,
+		WHERE admin_id = $4 AND workspace_id = $5 AND type_key = $6`, tx,
 		strconv.Itoa(statusId), encoded, tool.Time2Int(), adminId, cast.ToInt(workspaceId), typeKey)
 	return err
 }
@@ -190,18 +190,13 @@ func RemoveDisplaySettingStatusTx(tx *sql.Tx, adminId int, workspaceId, typeKey 
 	return err
 }
 
-// RemoveDisplaySettingStatus removes one status entry after status deletion commits.
-func RemoveDisplaySettingStatus(adminId int, workspaceId, typeKey string, statusId int) error {
-	return RemoveDisplaySettingStatusTx(nil, adminId, workspaceId, typeKey, statusId)
-}
-
-// ResetDisplaySettingStatuses replaces all status entries with current enabled detail fields.
-func ResetDisplaySettingStatuses(adminId int, workspaceId, typeKey string) error {
-	defaultFields, err := enabledDetailFieldKeys(adminId, workspaceId, typeKey, nil)
+// resetDisplaySettingStatusesTx 在状态重建事务内恢复详情字段配置。
+func resetDisplaySettingStatusesTx(tx *sql.Tx, adminId int, workspaceId, typeKey string) error {
+	defaultFields, err := enabledDetailFieldKeys(adminId, workspaceId, typeKey, tx)
 	if err != nil {
 		return err
 	}
-	statusIds, err := displaySettingStatusIDs(adminId, workspaceId, typeKey, nil)
+	statusIds, err := displaySettingStatusIDs(adminId, workspaceId, typeKey, tx)
 	if err != nil {
 		return err
 	}
@@ -215,7 +210,7 @@ func ResetDisplaySettingStatuses(adminId int, workspaceId, typeKey string) error
 	}
 	_, err = msql.RawExec(define.Postgres, `UPDATE `+define.TableWorkItemDisplaySettings+`
 		SET status_fields_json = $1, updated_at = $2
-		WHERE admin_id = $3 AND workspace_id = $4 AND type_key = $5`, nil,
+		WHERE admin_id = $3 AND workspace_id = $4 AND type_key = $5`, tx,
 		encoded, tool.Time2Int(), adminId, cast.ToInt(workspaceId), typeKey)
 	return err
 }

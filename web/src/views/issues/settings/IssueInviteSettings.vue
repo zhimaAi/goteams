@@ -77,6 +77,14 @@
                 class="issue-invite-settings__type-pill"
               />
             </template>
+            <template v-else-if="column.key === 'visible_roles'">
+              <a-tag v-for="id in record.visible_role_ids" :key="id">
+                {{ roleLabel(id) }}
+              </a-tag>
+              <span v-if="!record.visible_role_ids?.length">
+                {{ $t("settings_template_all_roles") }}
+              </span>
+            </template>
             <template v-else-if="column.key === 'enabled'">
               <a-switch
                 :checked="Number(record.enabled) === 1"
@@ -148,6 +156,7 @@ import { storeToRefs } from "pinia";
 import Sortable from "sortablejs";
 import { useAuthStore } from "@/stores/auth";
 import { useIssueInviteStore } from "@/stores/issueInvite";
+import { useTemplateVisibleRoles } from "@/composables/useTemplateVisibleRoles";
 import WorkItemTypePill from "@/components/common/WorkItemTypePill.vue";
 import IssuePhonePreview from "./IssuePhonePreview.vue";
 import IssueInviteCopyTextModal from "./IssueInviteCopyTextModal.vue";
@@ -157,6 +166,9 @@ const props = defineProps({
   appEnabled: { type: Boolean, required: true },
 });
 
+const { roleLabel } = useTemplateVisibleRoles(() =>
+  props.appEnabled ? props.wsId : "",
+);
 const { t } = useI18n();
 const authStore = useAuthStore();
 const store = useIssueInviteStore();
@@ -179,6 +191,7 @@ const columns = [
   { key: "sort", title: "", width: 44 },
   { key: "type", title: t("issue_invite_type"), width: 90 },
   { key: "name", title: t("issue_invite_template_name"), dataIndex: "name" },
+  { key: "visible_roles", title: t("settings_template_visible_roles") },
   { key: "enabled", title: t("issue_invite_enabled"), width: 80 },
   { key: "action", title: t("issue_invite_action"), width: 130 },
 ];
@@ -321,8 +334,9 @@ function openTemplateSettings(item) {
 async function toggleTemplate(item, enabled) {
   const previous = Number(item.enabled) === 1;
   try {
+    const { visible_role_ids: _, ...template } = item;
     await store.saveTemplate(props.wsId, item.id, {
-      ...item,
+      ...template,
       enabled: enabled ? 1 : 0,
     });
     message.success(

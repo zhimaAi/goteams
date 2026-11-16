@@ -42,9 +42,9 @@ type CreateWorkspaceTypeModel struct {
 	Name    string
 }
 
-// CanManageWorkspaceTypes 仅允许配置指定的模板租户 owner 维护部署级类型。
+// CanManageWorkspaceTypes 仅允许租户 owner 维护部署级类型。
 func CanManageWorkspaceTypes(adminId, userId int) bool {
-	return adminId > 0 && adminId == GetTemplateAdminId() && IsTenantOwner(adminId, userId)
+	return adminId > 0 && IsTenantOwner(adminId, userId)
 }
 
 // ListWorkspaceTypes 合并本部署字典及离线模板包携带的自定义类型。

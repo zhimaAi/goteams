@@ -4,6 +4,8 @@
     :ws-id="wsId"
     :type-key="typeKey"
     :template="editing"
+    :role-options="roleOptions"
+    :roles-ready="rolesReady"
     @cancel="editing = null"
     @saved="onSaved"
   />
@@ -26,41 +28,49 @@
       <template v-if="enabled">
         <a-tabs v-model:activeKey="activeTab" size="small">
           <a-tab-pane key="create" :tab="$t('settings_template_create_tab')">
-        <div class="template-actions">
-          <a-button type="primary" @click="openCreate">
-            <PlusOutlined />
-            {{ $t("settings_template_create") }}
-          </a-button>
-        </div>
-        <a-table
-          :data-source="items"
-          :columns="columns"
-          :pagination="false"
-          row-key="id"
-          size="middle"
-        >
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'name'">
-              <FileTextOutlined class="name-icon" />
-              {{ record.name }}
-            </template>
-            <template v-else-if="column.key === 'actions'">
-              <a-button type="link" size="small" @click="editing = record">
-                {{ $t("common_edit") }}
+            <div class="template-actions">
+              <a-button type="primary" @click="openCreate">
+                <PlusOutlined />
+                {{ $t("settings_template_create") }}
               </a-button>
-              <a-popconfirm
-                :title="$t('settings_template_delete_confirm')"
-                :ok-text="$t('common_confirm')"
-                :cancel-text="$t('common_cancel')"
-                @confirm="remove(record)"
-              >
-                <a-button type="link" size="small" danger>
-                  {{ $t("common_delete") }}
-                </a-button>
-              </a-popconfirm>
-            </template>
-          </template>
-        </a-table>
+            </div>
+            <a-table
+              :data-source="items"
+              :columns="columns"
+              :pagination="false"
+              row-key="id"
+              size="middle"
+            >
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'name'">
+                  <FileTextOutlined class="name-icon" />
+                  {{ record.name }}
+                </template>
+                <template v-else-if="column.key === 'visible_roles'">
+                  <a-tag v-for="id in record.visible_role_ids" :key="id">
+                    {{ roleLabel(id) }}
+                  </a-tag>
+                  <span v-if="!record.visible_role_ids?.length">
+                    {{ $t("settings_template_all_roles") }}
+                  </span>
+                </template>
+                <template v-else-if="column.key === 'actions'">
+                  <a-button type="link" size="small" @click="editing = record">
+                    {{ $t("common_edit") }}
+                  </a-button>
+                  <a-popconfirm
+                    :title="$t('settings_template_delete_confirm')"
+                    :ok-text="$t('common_confirm')"
+                    :cancel-text="$t('common_cancel')"
+                    @confirm="remove(record)"
+                  >
+                    <a-button type="link" size="small" danger>
+                      {{ $t("common_delete") }}
+                    </a-button>
+                  </a-popconfirm>
+                </template>
+              </template>
+            </a-table>
           </a-tab-pane>
           <a-tab-pane key="display" :tab="$t('settings_template_display_tab')">
             <DisplaySettingsTab :ws-id="wsId" :type-key="typeKey" />
@@ -81,6 +91,7 @@ import {
   listWorkItemTemplates,
   updateWorkItemTemplateSettings,
 } from "@/api/workspace";
+import { useTemplateVisibleRoles } from "@/composables/useTemplateVisibleRoles";
 import TemplateEditor from "./TemplateEditor.vue";
 import DisplaySettingsTab from "./DisplaySettingsTab.vue";
 
@@ -89,6 +100,9 @@ const props = defineProps({
   typeKey: { type: String, default: "requirement" },
 });
 
+const { roleOptions, rolesReady, roleLabel } = useTemplateVisibleRoles(
+  () => props.wsId,
+);
 const emit = defineEmits(["editing-change"]);
 const { t } = useI18n();
 const enabled = ref(false);
@@ -99,11 +113,16 @@ const activeTab = ref("create");
 
 const columns = computed(() => [
   { title: t("settings_template_name"), key: "name", dataIndex: "name" },
+  { title: t("settings_template_visible_roles"), key: "visible_roles" },
   { title: t("workspace_action"), key: "actions", width: 160 },
 ]);
 
+let listRequest = 0;
 async function loadList() {
-  const data = await listWorkItemTemplates(props.wsId, props.typeKey);
+  const request = ++listRequest;
+  items.value = [];
+  const data = await listWorkItemTemplates(props.wsId, props.typeKey, true);
+  if (request !== listRequest) return;
   enabled.value = !!data?.enabled;
   items.value = data?.items || [];
 }

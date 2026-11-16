@@ -7,7 +7,7 @@
           <p>{{ $t("issue_invite_openid_hint", { code: "openid=XX" }) }}</p>
         </div>
         <a-button
-          v-if="canCopyLink"
+          v-if="canCopyLink && template?.template_key"
           type="primary"
           class="issue-template-detail__copy"
           @click="copyLink"
@@ -72,6 +72,26 @@
             :checked-children="$t('common_on')"
             :un-checked-children="$t('common_off')"
             @change="onRecallEnabledChange"
+          />
+        </header>
+      </section>
+
+      <section class="issue-template-detail__card">
+        <header class="issue-template-detail__card-head">
+          <h3 class="issue-template-detail__section-title">
+            {{ $t("settings_template_visible_roles") }}
+          </h3>
+          <a-select
+            v-model:value="visibleRoleIDs"
+            :aria-label="$t('settings_template_visible_roles')"
+            mode="multiple"
+            option-filter-prop="label"
+            :options="visibleRoleOptions"
+            :disabled="!rolesReady"
+            :placeholder="$t('settings_template_all_roles')"
+            allow-clear
+            style="width: min(55%, 380px)"
+            @change="onVisibleRolesChange"
           />
         </header>
       </section>
@@ -235,6 +255,7 @@ import {
 } from "@ant-design/icons-vue";
 import { useI18n } from "vue-i18n";
 import { CUSTOM_FIELD_TYPE_LABELS } from "@/constants/customField";
+import { useTemplateVisibleRoles } from "@/composables/useTemplateVisibleRoles";
 import IssueFieldManagerModal from "./IssueFieldManagerModal.vue";
 import IssueInviteCopyTextModal from "./IssueInviteCopyTextModal.vue";
 import IssuePhonePreview from "./IssuePhonePreview.vue";
@@ -260,6 +281,17 @@ const emit = defineEmits(["field-created"]);
 const name = defineModel("name", { type: String, default: "" });
 
 const { t } = useI18n();
+const { roleOptions, rolesReady, roleLabel } = useTemplateVisibleRoles(
+  () => props.wsId,
+);
+const visibleRoleIDs = ref([]);
+let visibleRolesEdited = false;
+const visibleRoleOptions = computed(() => [
+  ...roleOptions.value,
+  ...visibleRoleIDs.value
+    .filter((id) => !roleOptions.value.some((role) => role.value === id))
+    .map((id) => ({ value: id, label: roleLabel(id) })),
+]);
 
 // 这六个字段在公开表单里永远不画，保存时 display 一律压成关：ID、进度、剩余与超期工时
 // 在列表里照旧列出但开关置灰，创建人/创建时间连列表都不进（见 LIST_HIDDEN_KEYS）；
@@ -291,8 +323,8 @@ const copyTextModalOpen = ref(false);
 const recallEnabled = ref(false);
 const recallStatusId = ref(0);
 const dirty = ref(false);
-const saving = ref(false);
 let saveTimer = null;
+let pendingSave;
 let syncedId = null;
 let lastSavedToastAt = 0;
 // 新建页首次拿到项目字段时全部默认显示，之后再新增的字段默认不显示
@@ -487,6 +519,9 @@ function buildFieldsJson(rows) {
 
 function buildPayload() {
   return {
+    ...(visibleRolesEdited
+      ? { visible_role_ids: [...visibleRoleIDs.value] }
+      : {}),
     type_key: typeKey.value,
     name: name.value,
     description_mode: props.template?.description_mode || "rich-text",
@@ -517,6 +552,11 @@ function onRecallStatusChange() {
   scheduleSave();
 }
 
+function onVisibleRolesChange() {
+  visibleRolesEdited = true;
+  scheduleSave();
+}
+
 function scheduleSave() {
   dirty.value = true;
   // 新建要先在页头填名称，保存由页面上的按钮触发，不自动提交
@@ -525,36 +565,48 @@ function scheduleSave() {
   saveTimer = setTimeout(saveNow, 800);
 }
 
-async function saveNow() {
-  if (saving.value) return;
-  // 新建时还没有模板 ID，任何自动保存（含失焦）都不能发请求
-  if (props.create) return;
-  if (!dirty.value) return;
-  saving.value = true;
+function saveNow() {
+  if (pendingSave || props.create || !dirty.value) return pendingSave;
+  const payload = buildPayload();
+  dirty.value = false;
+  visibleRolesEdited = false;
+  pendingSave = persistDraft(payload);
+  return pendingSave;
+}
+
+async function persistDraft(payload) {
   try {
-    const item = await props.save(buildPayload());
-    // 后端会给撤回状态补默认值，本地还没选就回填，免得下拉框空着
+    const item = await props.save(payload);
+    if (!visibleRolesEdited && item) {
+      visibleRoleIDs.value = [...(item.visible_role_ids || [])];
+    }
     if (
       !(Number(recallStatusId.value) > 0) &&
       Number(item?.recall_status_id) > 0
     ) {
       recallStatusId.value = Number(item.recall_status_id);
     }
-    dirty.value = false;
-    // A light toast, throttled so rapid autosaves don't spam.
+    if (dirty.value) {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveNow, 800);
+    }
     const now = Date.now();
     if (now - lastSavedToastAt > 3000) {
       lastSavedToastAt = now;
       message.success(t("issue_invite_saved"));
     }
-  } catch (error) {
-    // The request interceptor already reports the error; keep the form dirty to retry later.
+  } catch {
+    // 请求拦截器已提示错误，保留草稿等待下次保存。
+    dirty.value = true;
+    visibleRolesEdited ||= payload.visible_role_ids !== undefined;
   } finally {
-    saving.value = false;
+    pendingSave = undefined;
   }
 }
 
 async function flushSave() {
+  clearTimeout(saveTimer);
+  if (pendingSave) await pendingSave;
   clearTimeout(saveTimer);
   await saveNow();
 }
@@ -674,6 +726,8 @@ watch(
     const id = template?.id;
     if (id === undefined || id === syncedId) return;
     syncedId = id;
+    visibleRolesEdited = false;
+    visibleRoleIDs.value = [...(template.visible_role_ids || [])];
     syncing = true;
     enabled.value = Number(template.enabled) === 1;
     themeImage.value = template.theme_image || "";
@@ -723,8 +777,8 @@ watch(
 onBeforeUnmount(() => {
   sortable?.destroy();
   clearTimeout(saveTimer);
-  if (dirty.value && !saving.value && !props.create) {
-    saveNow();
+  if (dirty.value && !props.create) {
+    flushSave();
   }
 });
 

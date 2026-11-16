@@ -27,6 +27,7 @@
         v-model:parent-id="parentId"
         v-model:status="status"
         v-model:priority="priority"
+        v-model:severity-id="severityId"
         v-model:version-id="versionId"
         v-model:assignee-ids="assigneeIds"
         v-model:planned-start-date="plannedStartDate"
@@ -39,6 +40,7 @@
         :items="propertyItems"
         :statuses="statuses"
         :priorities="priorityOptions"
+        :severities="severityOptions"
         :versions="selectableVersionOptions"
         :categories="categoryOptions"
         :members="memberOpts"
@@ -83,6 +85,7 @@ const {
   descriptionMode,
   status,
   priority,
+  severityId,
   versionId,
   assigneeIds,
   plannedStartDate,
@@ -100,6 +103,7 @@ const {
   memberOpts,
   statuses,
   priorityOptions,
+  severityOptions,
   categoryOptions,
   customFieldMembers,
   customValues,

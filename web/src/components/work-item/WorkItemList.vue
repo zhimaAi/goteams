@@ -434,6 +434,47 @@
               :color="record.status_color"
           /></span>
         </template>
+        <template v-if="column.key === 'statusActions'">
+          <a-space wrap :size="4" class="status-action-links">
+            <a-button
+              v-for="action in inlineStatusActionsFor(record)"
+              :key="action.id"
+              type="link"
+              size="small"
+              class="status-action-link"
+              @click.stop="runStatusAction(record, action)"
+            >
+              {{ action.name }}
+            </a-button>
+            <a-dropdown
+              v-if="statusActionsFor(record).length > 2"
+              trigger="click"
+              placement="bottomRight"
+            >
+              <a-button
+                type="link"
+                size="small"
+                class="status-action-link"
+                aria-haspopup="menu"
+                @click.stop
+              >
+                {{ $t("common_more") }}
+                <DownOutlined class="status-action-more-icon" />
+              </a-button>
+              <template #overlay>
+                <a-menu>
+                  <a-menu-item
+                    v-for="action in statusActionsFor(record).slice(1)"
+                    :key="action.id"
+                    @click="runStatusAction(record, action)"
+                  >
+                    {{ action.name }}
+                  </a-menu-item>
+                </a-menu>
+              </template>
+            </a-dropdown>
+          </a-space>
+        </template>
         <template v-if="column.key === 'template'">
           {{ record.template_name || "—" }}
         </template>
@@ -463,6 +504,36 @@
               :label="record.priority_name"
               :color="record.priority_color"
           /></span>
+        </template>
+        <template v-if="column.key === 'severity_id'">
+          <a-select
+            v-if="isEditing(record, 'severity_id')"
+            :value="Number(record.severity_id) || undefined"
+            :options="
+              (workspaceMetadata?.defect?.severities || []).map(
+                ({ id, label }) => ({ value: id, label }),
+              )
+            "
+            :placeholder="$t('settings_none')"
+            :aria-label="$t('workspace_severity')"
+            size="small"
+            allow-clear
+            autofocus
+            default-open
+            @change="(value) => saveInline(record, 'severity_id', value ?? 0)"
+            @blur="clearEditing"
+            @keydown.esc.stop.prevent="cancelEditing"
+            @click.stop
+          />
+          <span v-else-if="!Number(record.severity_id)">{{
+            $t("settings_none")
+          }}</span>
+          <PriorityPill
+            v-else
+            :priority="record.severity_id"
+            :label="record.severity_name"
+            :color="record.severity_color"
+          />
         </template>
         <template v-if="column.key === 'assignee'">
           <AssigneeSelect
@@ -790,6 +861,8 @@
     :ws-id="wsId"
     :work-item="transitionItem"
     :metadata="workspaceMetadata"
+    :status-action="transitionStatusAction"
+    @stale="refreshStatusActions(wsId, transitionItem.id)"
     @success="handleStatusTransitionSuccess"
   />
   <RequirementDetailDrawer
@@ -981,6 +1054,10 @@ const {
   workspaceMetadata,
   transitionOpen,
   transitionItem,
+  transitionStatusAction,
+  statusActionsFor,
+  runStatusAction,
+  refreshStatusActions,
   canManageRequirementCategories,
   isWorkItemTab,
   canCreateActiveWorkItem,
@@ -1108,8 +1185,31 @@ const sidebarViewGroups = computed(() =>
     ),
   })),
 );
+function inlineStatusActionsFor(record) {
+  const actions = statusActionsFor(record);
+  return actions.length > 2 ? actions.slice(0, 1) : actions;
+}
 </script>
 <style scoped lang="less">
+.status-action-links {
+  max-width: 100%;
+
+  :deep(.ant-space-item) {
+    min-width: 0;
+  }
+}
+.status-action-link {
+  height: auto;
+  max-width: 100%;
+  padding-inline: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+
+  > .status-action-more-icon {
+    margin-inline-start: 3px;
+  }
+}
 .category-cell {
   max-width: 100%;
   padding: 0;

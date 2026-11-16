@@ -51,6 +51,23 @@
           </a-select-option>
         </a-select>
         <a-select
+          v-else-if="item.key === 'severity_id'"
+          :value="severityId || undefined"
+          :disabled="!item.editable"
+          :placeholder="$t('settings_none')"
+          allow-clear
+          size="small"
+          @update:value="$emit('update:severityId', $event ?? 0)"
+        >
+          <a-select-option
+            v-for="option in severities"
+            :key="option.id"
+            :value="option.id"
+          >
+            {{ option.label }}
+          </a-select-option>
+        </a-select>
+        <a-select
           v-else-if="item.key === 'version'"
           :value="versionId"
           :disabled="!item.editable"
@@ -171,6 +188,8 @@ const props = defineProps({
   parentId: { type: Number, default: undefined },
   items: { type: Array, default: () => [] },
   statuses: { type: Array, default: () => [] },
+  severities: { type: Array, default: () => [] },
+  severityId: { type: Number, default: undefined },
   priorities: { type: Array, default: () => [] },
   versions: { type: Array, default: () => [] },
   categories: { type: Array, default: () => [] },
@@ -189,6 +208,7 @@ const emit = defineEmits([
   "update:parentId",
   "update:status",
   "update:priority",
+  "update:severityId",
   "update:versionId",
   "update:assigneeIds",
   "update:plannedStartDate",

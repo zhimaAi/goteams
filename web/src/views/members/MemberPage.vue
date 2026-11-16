@@ -130,46 +130,53 @@
                 block-node
                 @select="handleOrgSelect"
               >
-                <template #title="{ title, key: nodeKey }">
-                  <a-dropdown
-                    v-if="nodeKey === ORG_ROOT_KEY"
-                    :trigger="canRenameEnterprise ? ['contextmenu'] : []"
+                <template #title="{ title, key: nodeKey, depth }">
+                  <div
+                    class="org-node"
+                    :class="{ 'org-node-root': nodeKey === ORG_ROOT_KEY }"
                   >
-                    <span class="org-node org-node-root">
-                      <span class="org-node-title">{{ title }}</span>
-                      <span class="org-node-count">{{ members.length }}</span>
-                    </span>
-                    <template #overlay>
-                      <a-menu @click="openEnterpriseRename">
-                        <a-menu-item key="rename">
-                          <EditOutlined /> {{ $t("enterprise_name_edit") }}
-                        </a-menu-item>
-                      </a-menu>
-                    </template>
-                  </a-dropdown>
-                  <div v-else class="org-node">
                     <span class="org-node-title">{{ title }}</span>
                     <span class="org-node-count">{{
-                      departmentMemberCounts[nodeKey] || 0
+                      nodeKey === ORG_ROOT_KEY
+                        ? members.length
+                        : departmentMemberCounts[nodeKey] || 0
                     }}</span>
                     <a-dropdown
-                      v-if="canManageDepartments"
+                      v-if="
+                        nodeKey === ORG_ROOT_KEY
+                          ? canRenameEnterprise
+                          : canManageDepartments
+                      "
                       :trigger="['click']"
+                      open-class-name="org-node-more-open"
                     >
-                      <span
+                      <button
+                        type="button"
                         class="org-node-more"
                         :aria-label="$t('common_more')"
                         @click.stop
                       >
                         <MoreOutlined />
-                      </span>
+                      </button>
                       <template #overlay>
                         <a-menu
+                          v-if="nodeKey === ORG_ROOT_KEY"
+                          @click="openEnterpriseRename"
+                        >
+                          <a-menu-item key="rename">
+                            <EditOutlined /> {{ $t("enterprise_name_edit") }}
+                          </a-menu-item>
+                        </a-menu>
+                        <a-menu
+                          v-else
                           @click="
                             ({ key }) => handleDeptMenuClick(key, nodeKey)
                           "
                         >
-                          <a-menu-item key="addChild">
+                          <a-menu-item
+                            v-if="depth < DEPARTMENT_MAX_DEPTH"
+                            key="addChild"
+                          >
                             <PlusOutlined /> {{ $t("org_addSubDepartment") }}
                           </a-menu-item>
                           <a-menu-item key="rename">
@@ -1049,6 +1056,7 @@ const searchKeyword = ref("");
 
 // ======================== Organization structure ========================
 const ORG_ROOT_KEY = "root";
+const DEPARTMENT_MAX_DEPTH = 5;
 const ORG_PANEL_WIDTH_KEY = "member_org_panel_width";
 const ORG_PANEL_MIN_WIDTH = 180;
 const ORG_PANEL_MAX_WIDTH = 480;
@@ -1202,7 +1210,7 @@ const orgTreeData = computed(() => [
   {
     key: ORG_ROOT_KEY,
     title: displayEnterpriseName.value,
-    children: buildOrgChildren("0"),
+    children: buildOrgChildren("0", 1),
   },
 ]);
 const departmentSelectTree = computed(() => buildSelectChildren("0"));
@@ -1240,11 +1248,12 @@ const departmentMemberCounts = computed(() => {
   return counts;
 });
 
-function buildOrgChildren(parentId) {
+function buildOrgChildren(parentId, depth) {
   return (departmentChildren.value[parentId] || []).map((item) => ({
     key: item.id,
     title: item.name,
-    children: buildOrgChildren(item.id),
+    depth,
+    children: buildOrgChildren(item.id, depth + 1),
   }));
 }
 
@@ -1391,29 +1400,6 @@ watch(
       activeTab.value = tab;
     }
   },
-);
-
-// The sidebar enterprise entry navigates here with addMember=1, so open the
-// add-member modal right after landing on the members tab.
-watch(
-  () => route.query.addMember,
-  async (addMember) => {
-    if (addMember !== "1") return;
-    if (!canViewEnterpriseMembers.value) return;
-    activeTab.value = "members";
-    if (authStore.hasPermission("member:invite")) {
-      if (!enterpriseRoles.value.length) {
-        try {
-          await refreshEnterpriseRoles();
-        } catch {
-          /* error handled by interceptor */
-        }
-      }
-      openInviteModal();
-    }
-    router.replace({ query: { ...route.query, addMember: undefined } });
-  },
-  { immediate: true },
 );
 
 // ======================== Organization: tree data & actions ========================
@@ -2440,12 +2426,12 @@ function handleMemberAction(menuKey, record) {
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
 }
 
 .org-node-title {
   min-width: 0;
   flex: 1;
+  margin-inline-end: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2465,23 +2451,35 @@ function handleMemberAction(menuKey, record) {
 }
 
 .org-node-more {
-  display: none;
+  display: inline-flex;
   flex: none;
   width: 22px;
   height: 22px;
+  margin-inline-start: 4px;
+  padding: 0;
   align-items: center;
   justify-content: center;
+  border: 0;
   border-radius: 4px;
+  background: transparent;
   color: #657188;
+  cursor: pointer;
 
-  &:hover {
+  &:hover,
+  &:focus-visible {
     color: #0d68ff;
     background: #dbe7ff;
   }
 }
 
-.org-node:hover .org-node-more {
-  display: inline-flex;
+@media (hover: hover) {
+  .org-node:not(:hover)
+    .org-node-more:not(:focus-visible):not(.org-node-more-open) {
+    width: 0;
+    height: 0;
+    margin-inline-start: 0;
+    overflow: hidden;
+  }
 }
 
 .org-resizer {

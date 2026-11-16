@@ -14,6 +14,8 @@ export function useCreateWorkItemOptions(ctx) {
     ctx.members.value = [];
     ctx.statuses.value = [];
     ctx.priorities.value = [];
+    ctx.severityOptions.value = [];
+    ctx.severityId.value = undefined;
     ctx.fieldConfigs.value = [];
     ctx.categories.value = [];
     ctx.customFields.value = [];
@@ -72,6 +74,10 @@ export function useCreateWorkItemOptions(ctx) {
           (item) => Number(item.is_default) === 1,
         )?.id;
       }
+      ctx.severityOptions.value = typeConfigs.severities || [];
+      ctx.severityId.value = ctx.severityOptions.value.find(
+        (item) => Number(item.is_default) === 1,
+      )?.id;
       ctx.fieldConfigs.value = typeConfigs.field_configs || [];
       if (typeKey === "requirement") {
         try {

@@ -49,10 +49,14 @@ let licenseRedirecting = false;
 // a never-activated instance still clears local identity and uses the public license page.
 function handleLicenseBlocked(data) {
   if (licenseRedirecting) return;
-  licenseRedirecting = true;
   const authStore = useAuthStore();
   const managementOnly = data?.data?.management_only === true;
-  if (managementOnly && authStore.token) {
+  // Management-only states keep the login form usable. A pre-login 403 (the OAuth provider
+  // lookup runs before any token exists) must not bounce /login to the license page: the
+  // router guard sends /license straight back to /login, producing an endless reload loop.
+  if (managementOnly && !authStore.token) return;
+  licenseRedirecting = true;
+  if (managementOnly) {
     goToLicensePage(data?.data?.redirect || "/members?tab=version");
     return;
   }

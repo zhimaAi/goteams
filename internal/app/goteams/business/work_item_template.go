@@ -88,6 +88,7 @@ type templateFieldJSON struct {
 
 // WorkItemTemplateModel is a pool template plus its field list.
 type WorkItemTemplateModel struct {
+	VisibleRoleIDs    []int
 	Id                int
 	SourceWorkspaceId int
 	TypeKey           string
@@ -104,6 +105,8 @@ type WorkItemTemplateModel struct {
 
 // ListWorkItemTemplatesModel lists templates linked to a workspace.
 type ListWorkItemTemplatesModel struct {
+	UserId      int
+	Manage      bool
 	AdminId     int
 	WorkspaceId string
 	TypeKey     string
@@ -113,6 +116,8 @@ type ListWorkItemTemplatesModel struct {
 
 // GetWorkItemTemplateModel loads one linked template.
 type GetWorkItemTemplateModel struct {
+	UserId      int
+	Manage      bool
 	AdminId     int
 	WorkspaceId string
 	TemplateId  int
@@ -122,6 +127,7 @@ type GetWorkItemTemplateModel struct {
 
 // SaveWorkItemTemplateModel creates or updates a pool template and links it to the workspace.
 type SaveWorkItemTemplateModel struct {
+	VisibleRoleIDs  []int
 	AdminId         int
 	UserId          int
 	WorkspaceId     string
@@ -133,6 +139,37 @@ type SaveWorkItemTemplateModel struct {
 	DescriptionMode string
 	Fields          []TemplateFieldModel
 	Id              int
+}
+
+// UpdateWorkItemTemplateVisibility 只更新当前工作空间的模板关联。
+func UpdateWorkItemTemplateVisibility(model SaveWorkItemTemplateModel) error {
+	workspaceID := cast.ToInt(model.WorkspaceId)
+	tx, err := msql.Begin(define.Postgres)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	roleIDs, err := validatedTemplateVisibleRoles(tx, model.AdminId, workspaceID, model.VisibleRoleIDs)
+	if err != nil {
+		return err
+	}
+	query := `UPDATE ` + define.TableWorkspaceWorkItemTemplates + ` a SET visible_role_ids = $5
+		FROM ` + define.TableWorkItemTemplates + ` t
+		WHERE a.admin_id = $1 AND a.workspace_id = $2 AND a.template_id = $3
+			AND t.admin_id = a.admin_id AND t.id = a.template_id AND t.type_key = $4`
+	result, err := msql.RawExec(define.Postgres, query, tx, model.AdminId, workspaceID, model.TemplateId, model.TypeKey, pq.Array(roleIDs))
+	if err != nil {
+		logs.Error("update linked template visibility failed, sql:%s, err:%s", query, err.Error())
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrWorkItemTemplateNotLinked
+	}
+	return tx.Commit()
 }
 
 // UpdateWorkItemTemplateSettingsModel persists the per-type template switch.
@@ -198,7 +235,7 @@ func ListWorkItemTemplates(model ListWorkItemTemplatesModel) (ListWorkItemTempla
 		return ListWorkItemTemplatesModel{}, err
 	}
 	rows, err := msql.RawValues(define.Postgres, `SELECT t.id, t.source_workspace_id, t.type_key, t.name, t.title, t.description, t.description_mode,
-		t.fields_json, t.created_by, t.created_at, t.updated_at
+		t.fields_json, t.created_by, t.created_at, t.updated_at, array_to_json(a.visible_role_ids)::text AS visible_role_ids
 		FROM `+define.TableWorkItemTemplates+` t
 		JOIN `+define.TableWorkspaceWorkItemTemplates+` a
 			ON a.admin_id = t.admin_id AND a.template_id = t.id
@@ -208,13 +245,22 @@ func ListWorkItemTemplates(model ListWorkItemTemplatesModel) (ListWorkItemTempla
 		logs.Error("list work item templates failed, err:%s", err.Error())
 		return ListWorkItemTemplatesModel{}, err
 	}
+	roleID := 0
+	if !model.Manage {
+		roleID, err = TemplateViewerRole(model.AdminId, cast.ToInt(model.WorkspaceId), model.UserId)
+		if err != nil {
+			return ListWorkItemTemplatesModel{}, err
+		}
+	}
 	items := make([]WorkItemTemplateModel, 0, len(rows))
 	for _, row := range rows {
 		item, convErr := toWorkItemTemplateModel(row)
 		if convErr != nil {
 			return ListWorkItemTemplatesModel{}, convErr
 		}
-		items = append(items, item)
+		if model.Manage || TemplateVisibleToRole(item.VisibleRoleIDs, roleID) {
+			items = append(items, item)
+		}
 	}
 	items, err = resolveWorkItemTemplates(model.AdminId, model.WorkspaceId, model.TypeKey, items, false)
 	if err != nil {
@@ -230,6 +276,15 @@ func GetWorkItemTemplate(model GetWorkItemTemplateModel) (GetWorkItemTemplateMod
 	item, err := loadLinkedTemplate(model.AdminId, model.WorkspaceId, model.TemplateId, model.TypeKey)
 	if err != nil {
 		return GetWorkItemTemplateModel{}, err
+	}
+	if !model.Manage && len(item.VisibleRoleIDs) != 0 {
+		roleID, roleErr := TemplateViewerRole(model.AdminId, cast.ToInt(model.WorkspaceId), model.UserId)
+		if roleErr != nil {
+			return GetWorkItemTemplateModel{}, roleErr
+		}
+		if !TemplateVisibleToRole(item.VisibleRoleIDs, roleID) {
+			return GetWorkItemTemplateModel{}, ErrWorkItemTemplateNotFound
+		}
 	}
 	items, err := resolveWorkItemTemplates(model.AdminId, model.WorkspaceId, item.TypeKey, []WorkItemTemplateModel{item}, false)
 	if err != nil {
@@ -258,6 +313,10 @@ func CreateWorkItemTemplate(model SaveWorkItemTemplateModel) (SaveWorkItemTempla
 		return SaveWorkItemTemplateModel{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	roleIDs, err := validatedTemplateVisibleRoles(tx, model.AdminId, cast.ToInt(model.WorkspaceId), model.VisibleRoleIDs)
+	if err != nil {
+		return SaveWorkItemTemplateModel{}, err
+	}
 	inserted, err := msql.RawValues(define.Postgres, `INSERT INTO `+define.TableWorkItemTemplates+`
 		(admin_id, source_workspace_id, type_key, name, title, description, description_mode, fields_json, created_by, created_at, updated_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10) RETURNING id`, tx,
@@ -270,7 +329,7 @@ func CreateWorkItemTemplate(model SaveWorkItemTemplateModel) (SaveWorkItemTempla
 		return SaveWorkItemTemplateModel{}, errors.New(`create work item template returned no id`)
 	}
 	templateId := cast.ToInt(inserted[0][`id`])
-	if err = insertTemplateLinkTx(tx, model.AdminId, model.WorkspaceId, templateId, now); err != nil {
+	if err = insertTemplateLinkTx(tx, model.AdminId, model.WorkspaceId, templateId, now, roleIDs); err != nil {
 		return SaveWorkItemTemplateModel{}, err
 	}
 	if err = tx.Commit(); err != nil {
@@ -296,28 +355,52 @@ func UpdateWorkItemTemplate(model SaveWorkItemTemplateModel) error {
 	if mode == `` {
 		mode = define.DescriptionModeRichText
 	}
-	m := msql.Model(define.TableWorkItemTemplates, define.Postgres)
-	n, err := m.Where2([][]string{
-		{`admin_id`, cast.ToString(model.AdminId)},
-		{`id`, cast.ToString(model.TemplateId)},
-		{`type_key`, model.TypeKey},
-	}).Update(msql.Datas{
-		`source_workspace_id`: cast.ToInt(model.WorkspaceId),
-		`name`:                model.Name,
-		`title`:               model.Title,
-		`description`:         model.Description,
-		`description_mode`:    mode,
-		`fields_json`:         fieldsJSON,
-		`updated_at`:          tool.Time2Int(),
-	})
+	workspaceID := cast.ToInt(model.WorkspaceId)
+	tx, err := msql.Begin(define.Postgres)
 	if err != nil {
-		logs.Error("sql:%s, err:%s", m.GetLastSql(), err.Error())
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var roleIDs []int
+	if model.VisibleRoleIDs != nil {
+		roleIDs, err = validatedTemplateVisibleRoles(tx, model.AdminId, workspaceID, model.VisibleRoleIDs)
+		if err != nil {
+			return err
+		}
+	}
+	query := `UPDATE ` + define.TableWorkItemTemplates + ` SET
+		source_workspace_id = $3, name = $5, title = $6, description = $7,
+		description_mode = $8, fields_json = $9, updated_at = $10
+		WHERE admin_id = $1 AND id = $2 AND type_key = $4`
+	result, err := msql.RawExec(define.Postgres, query, tx, model.AdminId, model.TemplateId, workspaceID,
+		model.TypeKey, model.Name, model.Title, model.Description, mode, fieldsJSON, tool.Time2Int())
+	if err != nil {
+		logs.Error("update work item template failed, sql:%s, err:%s", query, err.Error())
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
 		return err
 	}
 	if n == 0 {
 		return ErrWorkItemTemplateNotFound
 	}
-	return nil
+	query = `UPDATE ` + define.TableWorkspaceWorkItemTemplates + `
+		SET visible_role_ids = COALESCE($4::integer[], visible_role_ids)
+		WHERE admin_id = $1 AND workspace_id = $2 AND template_id = $3`
+	result, err = msql.RawExec(define.Postgres, query, tx, model.AdminId, workspaceID, model.TemplateId, pq.Array(roleIDs))
+	if err != nil {
+		logs.Error("update work item template roles failed, sql:%s, err:%s", query, err.Error())
+		return err
+	}
+	n, err = result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrWorkItemTemplateNotLinked
+	}
+	return tx.Commit()
 }
 
 // UpdateWorkItemTemplateSettings saves the per-type template switch.
@@ -374,7 +457,7 @@ func LinkWorkItemTemplates(model LinkWorkItemTemplatesModel) error {
 		if err = ensureTemplateCompatible(model.AdminId, model.WorkspaceId, model.TypeKey, templateId); err != nil {
 			return err
 		}
-		if err = insertTemplateLinkTx(tx, model.AdminId, model.WorkspaceId, templateId, now); err != nil {
+		if err = insertTemplateLinkTx(tx, model.AdminId, model.WorkspaceId, templateId, now, []int{}); err != nil {
 			return err
 		}
 		seen[templateId] = struct{}{}
@@ -567,7 +650,7 @@ func loadTemplateEnabled(adminId int, wsId, typeKey string) (bool, error) {
 
 func loadLinkedTemplate(adminId int, wsId string, templateId int, typeKey string) (WorkItemTemplateModel, error) {
 	rows, err := msql.RawValues(define.Postgres, `SELECT t.id, t.source_workspace_id, t.type_key, t.name, t.title, t.description, t.description_mode,
-		t.fields_json, t.created_by, t.created_at, t.updated_at
+		t.fields_json, t.created_by, t.created_at, t.updated_at, array_to_json(a.visible_role_ids)::text AS visible_role_ids
 		FROM `+define.TableWorkItemTemplates+` t
 		JOIN `+define.TableWorkspaceWorkItemTemplates+` a
 			ON a.admin_id = t.admin_id AND a.template_id = t.id
@@ -594,7 +677,7 @@ func poolTemplateExistsTx(tx *sql.Tx, adminId int, typeKey string, templateId in
 	return len(rows) > 0, nil
 }
 
-func insertTemplateLinkTx(tx *sql.Tx, adminId int, wsId string, templateId, now int) error {
+func insertTemplateLinkTx(tx *sql.Tx, adminId int, wsId string, templateId, now int, roleIDs []int) error {
 	nextRows, err := msql.RawValues(define.Postgres, `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_sort
 		FROM `+define.TableWorkspaceWorkItemTemplates+` WHERE admin_id = $1 AND workspace_id = $2`, tx, adminId, cast.ToInt(wsId))
 	if err != nil {
@@ -606,10 +689,10 @@ func insertTemplateLinkTx(tx *sql.Tx, adminId int, wsId string, templateId, now 
 		nextSort = cast.ToInt(nextRows[0][`next_sort`])
 	}
 	_, err = msql.RawExec(define.Postgres, `INSERT INTO `+define.TableWorkspaceWorkItemTemplates+`
-		(admin_id, workspace_id, template_id, sort_order, created_at)
-		VALUES ($1,$2,$3,$4,$5)
+		(admin_id, workspace_id, template_id, sort_order, created_at, visible_role_ids)
+		VALUES ($1,$2,$3,$4,$5,$6)
 		ON CONFLICT (admin_id, workspace_id, template_id) DO NOTHING`, tx,
-		adminId, cast.ToInt(wsId), templateId, nextSort, now)
+		adminId, cast.ToInt(wsId), templateId, nextSort, now, pq.Array(roleIDs))
 	if err != nil {
 		logs.Error("link work item template failed, err:%s", err.Error())
 		return err
@@ -669,7 +752,14 @@ func toWorkItemTemplateModel(row msql.Params) (WorkItemTemplateModel, error) {
 	if err != nil {
 		return WorkItemTemplateModel{}, err
 	}
+	var visibleRoleIDs []int
+	if raw, ok := row[`visible_role_ids`]; ok {
+		if err := json.Unmarshal([]byte(raw), &visibleRoleIDs); err != nil {
+			return WorkItemTemplateModel{}, fmt.Errorf("decode template visible roles: %w", err)
+		}
+	}
 	return WorkItemTemplateModel{
+		VisibleRoleIDs:    visibleRoleIDs,
 		Id:                id,
 		SourceWorkspaceId: sourceWorkspaceId,
 		TypeKey:           row[`type_key`],

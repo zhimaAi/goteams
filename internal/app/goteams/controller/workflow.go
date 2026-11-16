@@ -23,13 +23,14 @@ type listStatusesResponseItem struct {
 	Color     string `json:"color"`
 	SortOrder int    `json:"sort_order"`
 	IsDefault int    `json:"is_default"`
+	IsBuiltin bool   `json:"is_builtin"`
 }
 
 // createStatusRequest is the request to create a status.
 type createStatusRequest struct {
 	Name      string `json:"name"`
 	Color     string `json:"color"`
-	SortOrder int    `json:"sort_order"`
+	SortOrder *int   `json:"sort_order"`
 }
 
 // createStatusResponse is the response after creating a status.
@@ -41,7 +42,7 @@ type createStatusResponse struct {
 type updateStatusRequest struct {
 	Name      string `json:"name"`
 	Color     string `json:"color"`
-	SortOrder int    `json:"sort_order"`
+	SortOrder *int   `json:"sort_order"`
 }
 
 // listPrioritiesResponseItem is an item in the priority list.
@@ -51,13 +52,14 @@ type listPrioritiesResponseItem struct {
 	Color     string `json:"color"`
 	SortOrder int    `json:"sort_order"`
 	IsDefault int    `json:"is_default"`
+	IsBuiltin bool   `json:"is_builtin"`
 }
 
 // createPriorityRequest is the request to create a priority.
 type createPriorityRequest struct {
 	Name      string `json:"name"`
 	Color     string `json:"color"`
-	SortOrder int    `json:"sort_order"`
+	SortOrder *int   `json:"sort_order"`
 }
 
 // createPriorityResponse is the response after creating a priority.
@@ -69,12 +71,58 @@ type createPriorityResponse struct {
 type updatePriorityRequest struct {
 	Name      string `json:"name"`
 	Color     string `json:"color"`
-	SortOrder int    `json:"sort_order"`
+	SortOrder *int   `json:"sort_order"`
 }
 
 // setDefaultPriorityRequest is the request to set the default priority; 0 clears the default.
 type setDefaultPriorityRequest struct {
 	PriorityId *int `json:"priority_id"`
+}
+
+type reorderWorkflowOptionsRequest struct {
+	Ids []int `json:"ids"`
+}
+
+// ReorderStatuses 保存状态选项的展示顺序。
+func ReorderStatuses(c *gin.Context) {
+	reorderWorkflowOptions(c, business.WorkflowStatusOrder, c.DefaultQuery("type", define.TypeKeyRequirement))
+}
+
+// ReorderPriorities 保存优先级选项的展示顺序。
+func ReorderPriorities(c *gin.Context) {
+	reorderWorkflowOptions(c, business.WorkflowPriorityOrder, c.DefaultQuery("type", define.TypeKeyRequirement))
+}
+
+// ReorderSeverities 保存缺陷严重等级选项的展示顺序。
+func ReorderSeverities(c *gin.Context) {
+	reorderWorkflowOptions(c, business.WorkflowSeverityOrder, define.TypeKeyDefect)
+}
+
+func reorderWorkflowOptions(c *gin.Context, kind, typeKey string) {
+	lang := lib_i18n.GetLang(c)
+	var req reorderWorkflowOptionsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), "workflow.order.bind", err)
+		return
+	}
+	err := business.ReorderWorkflowOptions(business.ReorderWorkflowOptionsModel{
+		AdminId: c.GetInt("adminId"), WorkspaceId: cast.ToInt(c.Param("wsId")),
+		Kind: kind, TypeKey: typeKey, Ids: req.Ids,
+	})
+	switch {
+	case errors.Is(err, business.ErrWorkflowOptionOrderInvalid):
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), "workflow.order.input", err)
+	case errors.Is(err, business.ErrStatusActionNotFound):
+		c.JSON(http.StatusNotFound, define.Response{
+			Code: http.StatusNotFound, Message: lib_i18n.Show(lang, define.MsgWorkspaceNotFound),
+		})
+	case errors.Is(err, business.ErrWorkflowOptionOrderChanged):
+		abortConflict(c, lib_i18n.Show(lang, define.MsgWorkflowOptionOrderChanged))
+	case err != nil:
+		abortInternal(c, lib_i18n.Show(lang, define.MsgError), "workflow.order", err)
+	default:
+		c.JSON(http.StatusOK, define.Response{Code: define.CodeSuccess, Message: lib_i18n.Show(lang, define.MsgSuccess)})
+	}
 }
 
 type statusTransitionFieldResponse struct {
@@ -178,7 +226,7 @@ func toListStatusesResponse(model business.ListStatusesModel) []listStatusesResp
 	items := make([]listStatusesResponseItem, 0, len(model.Items))
 	for _, item := range model.Items {
 		items = append(items, listStatusesResponseItem{
-			Id: item.Id, Name: item.Name, Color: item.Color, SortOrder: item.SortOrder, IsDefault: item.IsDefault,
+			Id: item.Id, Name: item.Name, Color: item.Color, SortOrder: item.SortOrder, IsDefault: item.IsDefault, IsBuiltin: item.IsBuiltin,
 		})
 	}
 	return items
@@ -189,7 +237,7 @@ func toListPrioritiesResponse(model business.ListPrioritiesModel) []listPrioriti
 	items := make([]listPrioritiesResponseItem, 0, len(model.Items))
 	for _, item := range model.Items {
 		items = append(items, listPrioritiesResponseItem{
-			Id: item.Id, Label: item.Label, Color: item.Color, SortOrder: item.SortOrder, IsDefault: item.IsDefault,
+			Id: item.Id, Label: item.Label, Color: item.Color, SortOrder: item.SortOrder, IsDefault: item.IsDefault, IsBuiltin: item.IsBuiltin,
 		})
 	}
 	return items
@@ -382,6 +430,10 @@ func DeleteStatus(c *gin.Context) {
 		TypeKey:  c.DefaultQuery(`type`, define.TypeKeyRequirement),
 		StatusId: cast.ToInt(c.Param(`statusId`)),
 	}); err != nil {
+		if errors.Is(err, business.ErrBuiltinWorkflowItem) {
+			abortConflict(c, lib_i18n.Show(lang, define.MsgBuiltinWorkflowItemDelete))
+			return
+		}
 		if business.IsSLAReferenceConflict(err) {
 			abortConflict(c, lib_i18n.Show(lang, define.MsgSLAConflict))
 			return
@@ -558,6 +610,10 @@ func DeletePriority(c *gin.Context) {
 		TypeKey:    c.DefaultQuery(`type`, define.TypeKeyRequirement),
 		PriorityId: cast.ToInt(c.Param(`priorityId`)),
 	}); err != nil {
+		if errors.Is(err, business.ErrBuiltinWorkflowItem) {
+			abortConflict(c, lib_i18n.Show(lang, define.MsgBuiltinWorkflowItemDelete))
+			return
+		}
 		if business.IsSLAReferenceConflict(err) {
 			abortConflict(c, lib_i18n.Show(lang, define.MsgSLAConflict))
 			return

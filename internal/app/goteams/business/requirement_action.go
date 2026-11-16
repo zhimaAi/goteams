@@ -401,13 +401,17 @@ func TransferWorkItem(model TransferWorkItemModel) (WorkItemActionResultModel, e
 				return WorkItemActionResultModel{}, err
 			}
 		}
+		severityId, err := resolveSeverityId(tx, model.AdminId, model.TargetWorkspaceId, model.TargetType, nil)
+		if err != nil {
+			return WorkItemActionResultModel{}, err
+		}
 		updateSQL := fmt.Sprintf(`UPDATE requirements SET workspace_id=$1, type=$2, parent_id=$3,
 			category_id=$4, status_id=$5, priority=$6, version_id=$7, assignee_ids=$8,
-			planned_start_date=%s, planned_end_date=%s, updated_at=$9, completed_at=$13, sla_match=NULL
+			planned_start_date=%s, planned_end_date=%s, updated_at=$9, completed_at=$13, sla_match=NULL, severity_id=$14
 			WHERE admin_id=$10 AND workspace_id=$11 AND id=$12`, plannedStartDateSQL, plannedEndDateSQL)
 		if _, err = msql.RawExec(define.Postgres, updateSQL, tx,
 			model.TargetWorkspaceId, model.TargetType, parentId, categoryId, statusId, priorityId, versionId,
-			pq.Array(assignees), now, model.AdminId, model.SourceWorkspaceId, item.Id, completedAt); err != nil {
+			pq.Array(assignees), now, model.AdminId, model.SourceWorkspaceId, item.Id, completedAt, severityId); err != nil {
 			return WorkItemActionResultModel{}, err
 		}
 		if model.TargetType == define.TypeKeyRequirement {

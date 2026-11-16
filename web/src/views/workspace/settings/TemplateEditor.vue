@@ -23,6 +23,20 @@
           :placeholder="$t('settings_template_name_placeholder')"
         />
       </div>
+      <div class="form-item">
+        <label>{{ $t("settings_template_visible_roles") }}</label>
+        <a-select
+          v-model:value="visibleRoleIDs"
+          :aria-label="$t('settings_template_visible_roles')"
+          mode="multiple"
+          option-filter-prop="label"
+          :options="visibleRoleOptions"
+          :disabled="!rolesReady"
+          :placeholder="$t('settings_template_all_roles')"
+          allow-clear
+          style="width: 100%"
+        />
+      </div>
       <h4 class="section-title">{{ $t("settings_template_content") }}</h4>
       <div class="form-item">
         <label>{{ $t("settings_template_title") }}</label>
@@ -152,6 +166,7 @@ import {
   listFieldConfigs,
   listRequirementCategories,
   updateWorkItemTemplate,
+  updateWorkItemTemplateVisibility,
 } from "@/api/workspace";
 import { TEMPLATE_BUILTIN_KEYS } from "@/constants/workItemTemplate";
 import { isValidPhoneNumber } from "@/utils/customField";
@@ -167,10 +182,24 @@ const props = defineProps({
   wsId: { type: [String, Number], default: "" },
   typeKey: { type: String, default: "requirement" },
   template: { type: Object, default: () => ({}) },
+  roleOptions: { type: Array, default: () => [] },
+  rolesReady: { type: Boolean, default: false },
 });
 const emit = defineEmits(["cancel", "saved"]);
 const { t } = useI18n();
 
+let initialPayload;
+const originalRoleIDs = props.template.visible_role_ids || [];
+const visibleRoleIDs = ref([...originalRoleIDs]);
+const visibleRoleOptions = computed(() => [
+  ...props.roleOptions,
+  ...visibleRoleIDs.value
+    .filter((id) => !props.roleOptions.some((role) => role.value === id))
+    .map((id) => ({
+      value: id,
+      label: t("settings_template_unavailable_role", { id }),
+    })),
+]);
 const name = ref("");
 const title = ref("");
 const description = ref("");
@@ -208,6 +237,7 @@ onMounted(async () => {
     ? (props.template.fields || []).map((item) => ({ ...item }))
     : presetTemplateFields(metas.value.map((item) => item.value));
   fields.value = sanitizeAssigneeDefaults(rows);
+  initialPayload = JSON.stringify(buildPayload());
 });
 
 async function loadMetas() {
@@ -457,7 +487,49 @@ function onDrop(targetKey) {
   fields.value = list;
 }
 
+function buildPayload() {
+  return {
+    name: name.value.trim(),
+    title: title.value,
+    description: description.value,
+    description_mode: descriptionMode.value || "rich-text",
+    fields: fields.value.map((field) => ({
+      ...field,
+      required: !!(
+        field.required || metaMap.value[field.field_key]?.workspaceRequired
+      ),
+      linkages: (field.linkages || []).filter(
+        (rule) => rule.value != null && rule.field_keys?.length,
+      ),
+    })),
+  };
+}
+
 async function save() {
+  if (initialPayload === undefined) return;
+  const payload = buildPayload();
+  const rolesChanged =
+    JSON.stringify(visibleRoleIDs.value) !== JSON.stringify(originalRoleIDs);
+  if (
+    props.template.id &&
+    rolesChanged &&
+    JSON.stringify(payload) === initialPayload
+  ) {
+    saving.value = true;
+    try {
+      await updateWorkItemTemplateVisibility(
+        props.wsId,
+        props.typeKey,
+        props.template.id,
+        visibleRoleIDs.value,
+      );
+      message.success(t("common_saveSuccess"));
+      emit("saved");
+    } finally {
+      saving.value = false;
+    }
+    return;
+  }
   if (!name.value.trim()) {
     message.warning(t("settings_template_name_required"));
     return;
@@ -488,21 +560,9 @@ async function save() {
   }
   saving.value = true;
   try {
-    const payload = {
-      name: name.value.trim(),
-      title: title.value,
-      description: description.value,
-      description_mode: descriptionMode.value || "rich-text",
-      fields: fields.value.map((field) => ({
-        ...field,
-        required: !!(
-          field.required || metaMap.value[field.field_key]?.workspaceRequired
-        ),
-        linkages: (field.linkages || []).filter(
-          (rule) => rule.value != null && rule.field_keys?.length,
-        ),
-      })),
-    };
+    if (rolesChanged) {
+      payload.visible_role_ids = visibleRoleIDs.value;
+    }
     if (props.template.id) {
       await updateWorkItemTemplate(
         props.wsId,

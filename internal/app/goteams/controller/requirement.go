@@ -85,6 +85,9 @@ type listRequirementsResponseItem struct {
 	StatusName         string   `json:"status_name"`
 	StatusColor        string   `json:"status_color"`
 	AgingStatus        int      `json:"aging_status"`
+	SeverityId         int      `json:"severity_id"`
+	SeverityName       string   `json:"severity_name"`
+	SeverityColor      string   `json:"severity_color"`
 	PriorityName       string   `json:"priority_name"`
 	PriorityColor      string   `json:"priority_color"`
 	CreatorName        string   `json:"creator_name"`
@@ -140,6 +143,9 @@ func toListRequirementsResponse(model business.ListRequirementsModel, lang strin
 			StatusName:         lib_i18n.ShowStored(lang, item.StatusName),
 			StatusColor:        item.StatusColor,
 			AgingStatus:        item.AgingStatus,
+			SeverityId:         item.SeverityId,
+			SeverityName:       lib_i18n.ShowStored(lang, item.SeverityName),
+			SeverityColor:      item.SeverityColor,
 			PriorityName:       lib_i18n.ShowStored(lang, item.PriorityName),
 			PriorityColor:      item.PriorityColor,
 			CreatorName:        item.CreatorName,
@@ -621,6 +627,7 @@ type createRequirementRequest struct {
 	Type               string                 `json:"type"`
 	StatusId           any                    `json:"status_id"`
 	TemplateId         int                    `json:"template_id" binding:"gte=0"`
+	SeverityId         json.RawMessage        `json:"severity_id"`
 	Priority           json.RawMessage        `json:"priority"`
 	ParentId           any                    `json:"parent_id"`
 	CategoryId         int                    `json:"category_id"`
@@ -657,6 +664,11 @@ func CreateRequirement(c *gin.Context) {
 		return
 	}
 
+	severityId, severityErr := parseSeveritySelection(req.SeverityId)
+	if severityErr != nil {
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), "requirement.create.severity", severityErr)
+		return
+	}
 	priorityInt := 0
 	var priority *int
 	if len(req.Priority) > 0 {
@@ -719,6 +731,7 @@ func CreateRequirement(c *gin.Context) {
 		Description:        req.Description,
 		DescriptionMode:    descriptionMode,
 		Type:               req.Type,
+		SeverityId:         severityId,
 		Priority:           priority,
 		StatusId:           statusInt,
 		TemplateId:         req.TemplateId,
@@ -757,6 +770,10 @@ func CreateRequirement(c *gin.Context) {
 		}
 		if errors.Is(err, business.ErrRequirementCategoryNotFound) {
 			abortBadRequest(c, lib_i18n.Show(lang, define.MsgRequirementCategoryNotFound), `requirement.create.category`, err)
+			return
+		}
+		if errors.Is(err, business.ErrSeverityNotFound) || errors.Is(err, business.ErrSeverityInvalid) {
+			abortBadRequest(c, lib_i18n.Show(lang, define.MsgSeverityNotFound), "requirement.create.severity", err)
 			return
 		}
 		if errors.Is(err, business.ErrPriorityNotFound) {
@@ -874,6 +891,7 @@ func GetRequirement(c *gin.Context) {
 // localizeRequirementParams converts the stored workflow keys of a requirement into display text in the requested language.
 func localizeRequirementParams(item msql.Params, lang string) {
 	item[`status_name`] = lib_i18n.ShowStored(lang, item[`status_name`])
+	item[`severity_name`] = lib_i18n.ShowStored(lang, item[`severity_name`])
 	item[`priority_name`] = lib_i18n.ShowStored(lang, item[`priority_name`])
 }
 
@@ -921,6 +939,7 @@ func UpdateRequirement(c *gin.Context) {
 		Description        *string                 `json:"description"`
 		DescriptionMode    *string                 `json:"description_mode"`
 		Type               *string                 `json:"type"`
+		SeverityId         json.RawMessage         `json:"severity_id"`
 		Priority           json.RawMessage         `json:"priority"`
 		StatusId           *int                    `json:"status_id"`
 		ParentId           *int                    `json:"parent_id"`
@@ -938,6 +957,11 @@ func UpdateRequirement(c *gin.Context) {
 	}
 	if req.Type != nil {
 		abortBadRequest(c, lib_i18n.Show(lang, define.MsgWorkItemTypeImmutable), `requirement.update.type`, errors.New(`work item type is immutable`))
+		return
+	}
+	severityId, severityErr := parseSeveritySelection(req.SeverityId)
+	if severityErr != nil {
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), "requirement.update.severity", severityErr)
 		return
 	}
 	priorityProvided := len(req.Priority) > 0
@@ -993,6 +1017,9 @@ func UpdateRequirement(c *gin.Context) {
 	if req.DescriptionMode != nil {
 		updates[`description_mode`] = *req.DescriptionMode
 	}
+	if severityId != nil {
+		updates[`severity_id`] = *severityId
+	}
 	if priorityProvided {
 		updates[`priority`] = priorityInt
 	}
@@ -1033,6 +1060,10 @@ func UpdateRequirement(c *gin.Context) {
 		}
 		if errors.Is(err, business.ErrRequirementRelationInvalid) {
 			abortBadRequest(c, lib_i18n.Show(lang, define.MsgRequirementRelationInvalid), `requirement.update.relation`, err)
+			return
+		}
+		if errors.Is(err, business.ErrSeverityNotFound) || errors.Is(err, business.ErrSeverityInvalid) {
+			abortBadRequest(c, lib_i18n.Show(lang, define.MsgSeverityNotFound), "requirement.update.severity", err)
 			return
 		}
 		if errors.Is(err, business.ErrPriorityNotFound) {

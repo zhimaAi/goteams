@@ -97,7 +97,7 @@ var templateTables = []TemplateTable{
 	{
 		Name:    SrcWorkspacePriorities,
 		Table:   define.TableWorkItemPriorities,
-		Columns: []string{`id`, `type_key`, `name`, `color`, `sort_order`, `is_default`},
+		Columns: []string{`id`, `type_key`, `key`, `name`, `color`, `sort_order`, `is_default`},
 		OrderBy: `ORDER BY id ASC`,
 	},
 	{

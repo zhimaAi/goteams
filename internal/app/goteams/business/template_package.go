@@ -40,9 +40,7 @@ var (
 	// ErrTemplatePackageWorkspace means the requested template project is not part of
 	// the package's active workspace set.
 	ErrTemplatePackageWorkspace = errors.New(`template package workspace not found`)
-	// ErrTemplateExportForbidden means the caller is not the configured template account.
-	ErrTemplateExportForbidden = errors.New(`template export forbidden`)
-	// ErrTemplatePackageTooLarge means the export exceeds the package or entry size limit.
+	// ErrTemplatePackageTooLarge means the package or entry exceeds the size limit.
 	ErrTemplatePackageTooLarge = errors.New(`template package too large`)
 )
 

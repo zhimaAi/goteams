@@ -189,6 +189,8 @@ func fieldLabel(lang, typeKey, key string) string {
 		i18nKey = `workspace_field_iteration`
 	case `category`:
 		i18nKey = `workspace_field_category`
+	case `severity_id`:
+		i18nKey = `workspace_severity`
 	case `priority`:
 		i18nKey = `workspace_field_priority`
 	case `related_items`:

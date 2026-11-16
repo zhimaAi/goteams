@@ -73,10 +73,12 @@ type workspaceMetadataCustomFieldResponse struct {
 }
 
 type workspaceMetadataGroupResponse struct {
-	Statuses     []workspaceMetadataStatusResponse      `json:"statuses"`
-	Priorities   []workspaceMetadataPriorityResponse    `json:"priorities"`
-	FieldConfigs []workspaceMetadataFieldConfigResponse `json:"field_configs"`
-	CustomFields []workspaceMetadataCustomFieldResponse `json:"custom_fields"`
+	StatusActions *statusActionsMetadataResponse         `json:"status_actions,omitempty"`
+	Statuses      []workspaceMetadataStatusResponse      `json:"statuses"`
+	Severities    []severityResponse                     `json:"severities,omitempty"`
+	Priorities    []workspaceMetadataPriorityResponse    `json:"priorities"`
+	FieldConfigs  []workspaceMetadataFieldConfigResponse `json:"field_configs"`
+	CustomFields  []workspaceMetadataCustomFieldResponse `json:"custom_fields"`
 }
 
 type workspaceMetadataStatusTransitionFieldResponse struct {
@@ -290,10 +292,14 @@ func toWorkspaceMetadataStatusTransitionFormResponse(model business.StatusTransi
 // toWorkspaceMetadataGroupResponse converts a single work-item type's metadata group.
 func toWorkspaceMetadataGroupResponse(model business.WorkspaceMetadataGroupModel) workspaceMetadataGroupResponse {
 	response := workspaceMetadataGroupResponse{
-		Statuses:     make([]workspaceMetadataStatusResponse, 0, len(model.Statuses)),
-		Priorities:   make([]workspaceMetadataPriorityResponse, 0, len(model.Priorities)),
-		FieldConfigs: make([]workspaceMetadataFieldConfigResponse, 0, len(model.FieldConfigs)),
-		CustomFields: make([]workspaceMetadataCustomFieldResponse, 0, len(model.CustomFields)),
+		StatusActions: toStatusActionsMetadataResponse(model.StatusActions),
+		Statuses:      make([]workspaceMetadataStatusResponse, 0, len(model.Statuses)),
+		Priorities:    make([]workspaceMetadataPriorityResponse, 0, len(model.Priorities)),
+		FieldConfigs:  make([]workspaceMetadataFieldConfigResponse, 0, len(model.FieldConfigs)),
+		CustomFields:  make([]workspaceMetadataCustomFieldResponse, 0, len(model.CustomFields)),
+	}
+	if len(model.Severities) > 0 {
+		response.Severities = severityResponses(model.Severities)
 	}
 	for _, item := range model.Statuses {
 		response.Statuses = append(response.Statuses, workspaceMetadataStatusResponse(item))

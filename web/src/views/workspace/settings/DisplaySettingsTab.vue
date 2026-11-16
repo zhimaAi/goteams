@@ -157,6 +157,7 @@ import { customTemplateFieldKey } from "@/utils/workItemTemplate";
 const DETAIL_DISPLAY_BUILTIN_KEYS = new Set([
   "status",
   "priority",
+  "severity_id",
   "version",
   "category",
   "assignee",

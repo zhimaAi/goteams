@@ -11,12 +11,15 @@ import { usesIssuePages } from "@/utils/workspaceType";
 const applicationState = reactive(new Map());
 
 function recordOf(key) {
-  let record = applicationState.get(key);
-  if (!record) {
-    record = { keys: [], workspaceType: "", promise: null, loaded: false };
-    applicationState.set(key, record);
+  if (!applicationState.has(key)) {
+    applicationState.set(key, {
+      keys: [],
+      workspaceType: "",
+      promise: null,
+      loaded: false,
+    });
   }
-  return record;
+  return applicationState.get(key);
 }
 
 // The app market endpoint (GET /api/workspaces/:wsId/applications) is gated by

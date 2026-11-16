@@ -16,7 +16,7 @@ import (
 )
 
 func main() {
-	// -version prints build identity and exits (used by goteamsctl package verification).
+	// -version prints build identity and exits.
 	if len(os.Args) > 1 && (os.Args[1] == `-version` || os.Args[1] == `--version`) {
 		fmt.Printf("goteams %s edition=%s commit=%s\n", define.BuildVersion, define.BuildEdition, define.BuildCommit)
 		return

@@ -57,41 +57,57 @@ GoTeams 是新一代 AI研发协作平台，让 Agent 成为你的团队成员�
 ![Agent 协作](./assets/imgs/feature_7_zh.png)
 ![Agent 协作](./assets/imgs/feature_8_zh.png)
 
-## 🏢 开源版打包指南
+## 🏢 开源版安装部署
 
-打包在 Windows 上完成，产物为自解压 `.run` 安装包；解压、安装、升级、回滚、服务管理与卸载见[开源版安装与运维指南](docs/license_install.md)。
+需要 Docker（含 Compose V2）以及构建用的 Go、Node.js；在本地打包后直接用 Docker Compose 运行，不需要安装脚本。
 
-### 1. 准备环境
+### 1. 环境要求
 
-- Windows，PowerShell 5.1 或更高版本。
-- Git、Go、Node.js、npm 已加入 PATH；Go 版本满足 `go.mod`（当前最低 1.25.1），前端使用 Vite 5，Node.js 至少 18。
-- 离线包和 `-Both` 需要可用的 Docker daemon，并准备 Linux amd64 镜像。
-- 首次构建需联网获取依赖；在目标分支仓库根目录执行，脚本读取当前 `HEAD` 作为构建身份，未提交改动也会被编译进去。
+- Docker 20.10+ 与 Docker Compose V2（`docker compose version` 可用）。
+- Go 版本满足 `go.mod`（当前最低 1.25.1）。
+- Node.js 18+ 与 npm（前端使用 Vite 5）。
+- 首次构建需联网下载 Go/npm 依赖。
 
-### 2. 执行打包
+### 2. 准备配置
 
-以下命令在仓库根目录的 PowerShell 中执行：
+首次运行先把 `docker/.env.example` 复制为 `docker/.env`，再编辑配置：
 
-```powershell
-# 标准包（安装时联网拉取镜像）
-.\scripts\build-commercial-package.bat cn
-
-# 离线包（内含全部镜像）
-.\scripts\build-commercial-package.bat cn -Offline
-
-# 同一版本同时生成标准包与离线包
-.\scripts\build-commercial-package.bat cn -Both
+```bash
+cp docker/.env.example docker/.env
 ```
 
-双击 `.bat` 或不传参数时交互选择环境与包类型。输出目录为 `build/commercial/dist/`，两类包都内置 Docker Engine、Compose 插件与 systemd 单元。
+- `docker/.env` 的 `POSTGRES_PASSWORD`、`REDIS_PASSWORD` 必须与 `configs/goteams/config_pro.ini` 中 `[postgres].password`、`[redis].password` 一致；仓库默认值可直接启动，生产部署请改成自定义密码并同步修改两处。
+- `configs/goteams/config_pro.ini` 的 `[webservice].site_url` 改为实际访问地址，用于生成工作项链接。
+- 默认管理员为 `admin / admin123456`，首次登录会强制修改密码。
+- 对象存储、邮件、扫码登录、SSO、会话加密默认关闭，按需填写启用。
 
-### 3. 版本规则
+### 3. 打包
 
-- 打包脚本独占锁定 `build/commercial/VERSION`，每次构建 patch 加一；成功占号后失败也不回退，不手动降低或复用版本。
-- 同一版本的两类包使用 `-Both` 一次生成；分开运行会得到两个版本号。
-- `-MinUpgradeVersion` 默认 `v0.0.1`，只有发布策略要求限制升级来源时才显式收紧。
+在仓库根目录执行：
 
-执行 `make goteams` 会先构建前端，再编译后端（嵌入 `cn` 配置）。
+```bash
+make goteams
+```
+
+该命令先构建前端（生成 `web/dist.tar.gz`），再编译 Linux amd64 后端 `build/goteams`。没有 GNU Make 时手动执行等价命令：
+
+```bash
+cd web && npm ci && npm run build && cd ..
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o build/goteams ./cmd/goteams
+```
+
+### 4. 运行
+
+```bash
+cd docker
+docker compose --env-file .env up -d
+```
+
+浏览器访问 `http://127.0.0.1:8080`（端口由 `docker/.env` 的 `WEB_PORT` 控制）。查看日志使用 `docker compose logs -f goteams`，停止使用 `docker compose down`。
+
+### 5. 升级
+
+拉取新代码后重新执行 `make goteams`，再执行 `docker compose --env-file .env up -d`。数据卷会保留，不需要重新初始化数据库。
 
 ## 💻 技术栈
 

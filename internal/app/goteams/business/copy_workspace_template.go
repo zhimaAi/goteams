@@ -24,11 +24,6 @@ import (
 // or not owned by the configured template account.
 var ErrWorkspaceTemplateInvalid = errors.New("invalid template workspace")
 
-// GetTemplateAdminId returns the template account admin_id from configuration.
-func GetTemplateAdminId() int {
-	return cast.ToInt(define.Config.Template[`workspace_template_id`])
-}
-
 // templatePackageUnavailableLog is the fixed keyword ops grep for "the template package cannot
 // be read"; it separates packaging failures from a copy that failed midway through a step.
 const templatePackageUnavailableLog = `template package unavailable`
@@ -333,10 +328,14 @@ func (c *TemplateConfigCopier) copyPriorities() error {
 		return err
 	}
 	for _, row := range rows {
+		key := row[`key`]
+		if key == "" {
+			key = builtinPriorityKey(row[`type_key`], "", row[`name`])
+		}
 		ids, err := msql.RawValues(define.Postgres, `INSERT INTO `+define.TableWorkItemPriorities+`
-			(admin_id, workspace_id, type_key, name, color, sort_order, is_default, created_at, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, c.tx,
-			c.adminId, c.newWsId, row[`type_key`], row[`name`], row[`color`],
+			(admin_id, workspace_id, type_key, key, name, color, sort_order, is_default, created_at, updated_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`, c.tx,
+			c.adminId, c.newWsId, row[`type_key`], key, row[`name`], row[`color`],
 			row[`sort_order`], row[`is_default`], c.now, c.now)
 		if err != nil {
 			return err

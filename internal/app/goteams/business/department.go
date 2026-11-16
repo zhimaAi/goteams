@@ -28,8 +28,8 @@ var (
 )
 
 const (
-	// DepartmentMaxDepth caps the tree depth (defensive limit; real orgs rarely exceed 5 levels).
-	DepartmentMaxDepth = 10
+	// DepartmentMaxDepth 是手工及导入新增部门的层级上限，直属部门为第 1 级。
+	DepartmentMaxDepth = 5
 	// DepartmentMaxNameLen is the maximum department name length in runes.
 	DepartmentMaxNameLen = 50
 )
@@ -420,9 +420,9 @@ func DepartmentPathNames(adminId int) (map[int]string, error) {
 	}
 	paths := make(map[int]string, len(items))
 	for _, item := range items {
-		segments := make([]string, 0, DepartmentMaxDepth)
+		var segments []string
 		current, ok := item, true
-		for steps := 0; ok && steps < DepartmentMaxDepth; steps++ {
+		for steps := 0; ok && steps < len(items); steps++ {
 			segments = append([]string{current.Name}, segments...)
 			if current.ParentId == 0 {
 				break
@@ -439,9 +439,6 @@ func EnsureDepartmentPath(adminId int, names []string) (int, error) {
 	if len(names) == 0 {
 		return 0, ErrDepartmentInvalid
 	}
-	if len(names) > DepartmentMaxDepth {
-		return 0, ErrDepartmentDepthExceeded
-	}
 	parentId := 0
 	for _, rawName := range names {
 		name, err := NormalizeDepartmentName(rawName)
@@ -457,6 +454,10 @@ func EnsureDepartmentPath(adminId int, names []string) (int, error) {
 		if len(rows) > 0 {
 			parentId = cast.ToInt(rows[0][`id`])
 			continue
+		}
+		// 超深路径只能引用存量部门，不能留下部分新建的祖先。
+		if len(names) > DepartmentMaxDepth {
+			return 0, ErrDepartmentDepthExceeded
 		}
 		id, err := CreateDepartment(adminId, parentId, name)
 		if err != nil {

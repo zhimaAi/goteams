@@ -397,13 +397,12 @@
           :colon="false"
           :disabled="!canManage || saving"
         >
-          <div class="sla-policy-basics">
+          <div>
             <a-form-item :label="$t('sla_name')" required>
               <a-input
                 v-model:value="policyDraft.name"
                 :maxlength="100"
                 :placeholder="$t('sla_policyNamePlaceholder')"
-                class="sla-name-input"
               />
             </a-form-item>
             <a-form-item :label="$t('sla_description')">
@@ -431,7 +430,6 @@
             <a-form-item :label="$t('sla_priority')">
               <a-select
                 v-model:value="policyDraft.priority_ids"
-                class="sla-priority-select"
                 mode="multiple"
                 :options="priorityOptions"
                 :placeholder="$t('sla_any')"
@@ -442,7 +440,6 @@
             <a-form-item :label="$t('sla_category')">
               <a-select
                 v-model:value="policyDraft.category_ids"
-                class="sla-category-select"
                 mode="multiple"
                 :options="categoryOptions"
                 :placeholder="$t('sla_any')"
@@ -1604,18 +1601,9 @@ async function archive(type, item) {
   :deep(.ant-form-item-control) {
     min-width: 0;
   }
-  :deep(.ant-input),
-  :deep(.ant-select-selector),
-  :deep(.ant-input-number) {
-    border-color: var(--ant-color-border-secondary, #edeff2);
-    border-radius: 8px;
+  :deep(.ant-form-item-control-input) {
+    max-width: 500px;
   }
-}
-.sla-policy-basics {
-  max-width: 720px;
-}
-.sla-name-input {
-  max-width: 360px;
 }
 .sla-policy-section {
   margin-top: 30px;
@@ -1650,11 +1638,6 @@ async function archive(type, item) {
   font-weight: 600;
   line-height: 22px;
   white-space: nowrap;
-}
-.sla-priority-select,
-.sla-category-select {
-  min-width: 200px;
-  max-width: 500px;
 }
 .sla-clock-options {
   display: flex;
@@ -1692,8 +1675,6 @@ async function archive(type, item) {
 .sla-time-range-picker {
   width: 260px;
   max-width: 100%;
-  border-color: var(--ant-color-border-secondary, #edeff2);
-  border-radius: 8px;
 }
 .sla-remove-button {
   background: var(--ant-color-error-bg, #fff1f0);
@@ -1834,6 +1815,9 @@ async function archive(type, item) {
   .sla-policy-form :deep(.ant-form-item-label) {
     flex-basis: 100%;
     text-align: left;
+  }
+  .sla-policy-form :deep(.ant-form-item-control) {
+    flex-basis: 100%;
   }
   .sla-slots {
     padding-left: 0;

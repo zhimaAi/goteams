@@ -368,6 +368,19 @@ func importMemberRow(row []string, columnMap map[int]string, lookups *memberImpo
 		return &workItemImportRowError{message: localizedMemberImportError(pathErr, lang)}, false
 	}
 
+	departmentIds := make([]int, len(departmentPaths))
+	for index, path := range departmentPaths {
+		if len(path) <= DepartmentMaxDepth {
+			continue
+		}
+		// 先解析超深存量路径，确保同一行的其他路径不会在校验失败前写入。
+		id, err := EnsureDepartmentPath(lookups.adminId, path)
+		if err != nil {
+			return &workItemImportRowError{message: localizedMemberImportError(err, lang)}, false
+		}
+		departmentIds[index] = id
+	}
+
 	if dryRun {
 		if !exists {
 			taken, err := enterpriseUsernameExists(username, 0)
@@ -393,13 +406,15 @@ func importMemberRow(row []string, columnMap map[int]string, lookups *memberImpo
 		return nil, !exists
 	}
 
-	departmentIds := make([]int, 0, len(departmentPaths))
-	for _, path := range departmentPaths {
+	for index, path := range departmentPaths {
+		if departmentIds[index] != 0 {
+			continue
+		}
 		departmentId, err := EnsureDepartmentPath(lookups.adminId, path)
 		if err != nil {
 			return &workItemImportRowError{message: localizedMemberImportError(err, lang)}, false
 		}
-		departmentIds = append(departmentIds, departmentId)
+		departmentIds[index] = departmentId
 	}
 
 	if !exists {
@@ -452,7 +467,7 @@ func importMemberRow(row []string, columnMap map[int]string, lookups *memberImpo
 }
 
 // parseMemberDepartmentPaths parses "产品部/设计组,研发部" into path segment lists.
-// Chinese commas are tolerated; each segment is validated for emptiness, length and depth.
+// 支持中文逗号，路径深度在解析部门时按存量和新增规则校验。
 func parseMemberDepartmentPaths(text string) ([][]string, error) {
 	text = strings.ReplaceAll(text, `，`, `,`)
 	paths := make([][]string, 0, 4)
@@ -462,9 +477,6 @@ func parseMemberDepartmentPaths(text string) ([][]string, error) {
 			continue
 		}
 		segments := strings.Split(pathText, `/`)
-		if len(segments) > DepartmentMaxDepth {
-			return nil, ErrDepartmentDepthExceeded
-		}
 		names := make([]string, 0, len(segments))
 		for _, segment := range segments {
 			name, err := NormalizeDepartmentName(segment)

@@ -44,10 +44,11 @@ export function uploadIssueInviteThemeImage(wsId, file) {
 }
 
 // Return invitation templates for a workspace.
-export function listIssueInviteTemplates(wsId) {
+export function listIssueInviteTemplates(wsId, manage = false) {
   return request({
     url: `/api/workspaces/${wsId}/issue-invite/templates`,
     method: "GET",
+    params: { manage: manage ? 1 : undefined },
   });
 }
 
@@ -95,11 +96,11 @@ export function reorderIssueInviteTemplates(wsId, templateIds) {
 }
 
 // Return a public general-link configuration.
-export function getPublicIssueInvite(inviteKey, openid, lang) {
+export function getPublicIssueInvite(inviteKey, openid, lang, xkfStaffId) {
   return request({
     url: `/api/public/issue-invites/${encodeURIComponent(inviteKey)}`,
     method: "GET",
-    params: { openid },
+    params: { openid, xkf_staff_id: xkfStaffId },
     headers: publicHeaders(lang),
   });
 }

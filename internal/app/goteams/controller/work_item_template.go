@@ -32,6 +32,7 @@ type listWorkItemTemplateFieldResponse struct {
 }
 
 type listWorkItemTemplatesResponseItem struct {
+	VisibleRoleIDs  *[]int                              `json:"visible_role_ids,omitempty"`
 	Id              int                                 `json:"id"`
 	Name            string                              `json:"name"`
 	FieldCount      int                                 `json:"field_count"`
@@ -59,6 +60,7 @@ type getWorkItemTemplateFieldResponse struct {
 }
 
 type getWorkItemTemplateResponse struct {
+	VisibleRoleIDs  *[]int                             `json:"visible_role_ids,omitempty"`
 	Id              int                                `json:"id"`
 	Name            string                             `json:"name"`
 	FieldCount      int                                `json:"field_count"`
@@ -81,6 +83,7 @@ type createWorkItemTemplateFieldRequest struct {
 }
 
 type createWorkItemTemplateRequest struct {
+	VisibleRoleIDs  []int                                `json:"visible_role_ids"`
 	Name            string                               `json:"name"`
 	Title           string                               `json:"title"`
 	Description     string                               `json:"description"`
@@ -105,11 +108,16 @@ type updateWorkItemTemplateFieldRequest struct {
 }
 
 type updateWorkItemTemplateRequest struct {
+	VisibleRoleIDs  []int                                `json:"visible_role_ids"`
 	Name            string                               `json:"name"`
 	Title           string                               `json:"title"`
 	Description     string                               `json:"description"`
 	DescriptionMode string                               `json:"description_mode"`
 	Fields          []updateWorkItemTemplateFieldRequest `json:"fields"`
+}
+
+type updateWorkItemTemplateVisibilityRequest struct {
+	VisibleRoleIDs []int `json:"visible_role_ids" binding:"required"`
 }
 
 type updateWorkItemTemplateSettingsRequest struct {
@@ -158,8 +166,13 @@ type listWorkItemTemplatePoolResponseItem struct {
 func toListWorkItemTemplatesResponse(model business.ListWorkItemTemplatesModel) listWorkItemTemplatesResponse {
 	items := make([]listWorkItemTemplatesResponseItem, 0, len(model.Items))
 	for _, item := range model.Items {
+		var roleIDs *[]int
+		if model.Manage {
+			roleIDs = &item.VisibleRoleIDs
+		}
 		items = append(items, listWorkItemTemplatesResponseItem{
-			Id: item.Id, Name: item.Name, FieldCount: item.FieldCount,
+			VisibleRoleIDs: roleIDs,
+			Id:             item.Id, Name: item.Name, FieldCount: item.FieldCount,
 			Title: item.Title, Description: item.Description, DescriptionMode: item.DescriptionMode,
 			Fields: toListTemplateFields(item.Fields),
 		})
@@ -192,7 +205,11 @@ func toListTemplateFields(fields []business.TemplateFieldModel) []listWorkItemTe
 	return result
 }
 
-func toGetWorkItemTemplateResponse(item business.WorkItemTemplateModel) getWorkItemTemplateResponse {
+func toGetWorkItemTemplateResponse(item business.WorkItemTemplateModel, manage bool) getWorkItemTemplateResponse {
+	var roleIDs *[]int
+	if manage {
+		roleIDs = &item.VisibleRoleIDs
+	}
 	fields := make([]getWorkItemTemplateFieldResponse, 0, len(item.Fields))
 	for _, field := range item.Fields {
 		linkages := make([]getWorkItemTemplateLinkageResponse, 0, len(field.Linkages))
@@ -207,7 +224,8 @@ func toGetWorkItemTemplateResponse(item business.WorkItemTemplateModel) getWorkI
 		})
 	}
 	return getWorkItemTemplateResponse{
-		Id: item.Id, Name: item.Name, FieldCount: item.FieldCount,
+		VisibleRoleIDs: roleIDs,
+		Id:             item.Id, Name: item.Name, FieldCount: item.FieldCount,
 		Title: item.Title, Description: item.Description, DescriptionMode: item.DescriptionMode,
 		Fields: fields,
 	}
@@ -269,7 +287,7 @@ func abortWorkItemTemplateError(c *gin.Context, lang, scene string, err error) {
 		abortConflict(c, lib_i18n.Show(lang, define.MsgWorkItemTemplateInUse))
 	case errors.Is(err, business.ErrWorkItemTemplateFieldInvalid):
 		abortBadRequest(c, lib_i18n.Show(lang, define.MsgWorkItemTemplateFieldInvalid), scene, err)
-	case errors.Is(err, business.ErrWorkItemDisplaySettingInvalid):
+	case errors.Is(err, business.ErrWorkItemDisplaySettingInvalid), errors.Is(err, business.ErrTemplateVisibleRolesInvalid):
 		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), scene, err)
 	default:
 		abortInternal(c, lib_i18n.Show(lang, define.MsgError), scene, err)
@@ -284,6 +302,33 @@ func validateTemplateMeta(name, title, mode string) error {
 		return err
 	}
 	return validate.WorkItemTemplateDescriptionMode(mode)
+}
+
+type templateRoleOptionResponse struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// ListTemplateRoleOptions 返回模板设置页的可见角色选项。
+func ListTemplateRoleOptions(c *gin.Context) {
+	lang := lib_i18n.GetLang(c)
+	workspaceID, err := positiveParam(c, `wsId`)
+	if err != nil {
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `template.role_options.workspace`, err)
+		return
+	}
+	roles, err := business.ListTemplateRoleOptions(c.GetInt(`adminId`), workspaceID)
+	if err != nil {
+		abortInternal(c, lib_i18n.Show(lang, define.MsgError), `template.role_options.list`, err)
+		return
+	}
+	items := make([]templateRoleOptionResponse, 0, len(roles))
+	for _, role := range roles {
+		items = append(items, templateRoleOptionResponse{ID: role.ID, Name: lib_i18n.ShowStored(lang, role.Name)})
+	}
+	c.JSON(http.StatusOK, define.Response{
+		Code: define.CodeSuccess, Message: lib_i18n.Show(lang, define.MsgSuccess), Data: items,
+	})
 }
 
 // ListWorkItemTemplates returns the workspace template switch and linked templates.
@@ -303,7 +348,8 @@ func ListWorkItemTemplates(c *gin.Context) {
 		return
 	}
 	model, err := business.ListWorkItemTemplates(business.ListWorkItemTemplatesModel{
-		AdminId: c.GetInt(`adminId`), WorkspaceId: c.Param(`wsId`), TypeKey: typeKey,
+		AdminId: c.GetInt(`adminId`), UserId: c.GetInt(`userId`), WorkspaceId: c.Param(`wsId`), TypeKey: typeKey,
+		Manage: c.Query(`manage`) == `1`,
 	})
 	if err != nil {
 		abortWorkItemTemplateError(c, lang, `work_item_template.list`, err)
@@ -329,7 +375,8 @@ func GetWorkItemTemplate(c *gin.Context) {
 		return
 	}
 	model, err := business.GetWorkItemTemplate(business.GetWorkItemTemplateModel{
-		AdminId: c.GetInt(`adminId`), WorkspaceId: c.Param(`wsId`), TemplateId: templateId, TypeKey: typeKey,
+		AdminId: c.GetInt(`adminId`), UserId: c.GetInt(`userId`), WorkspaceId: c.Param(`wsId`), TemplateId: templateId, TypeKey: typeKey,
+		Manage: c.Query(`manage`) == `1`,
 	})
 	if err != nil {
 		abortWorkItemTemplateError(c, lang, `work_item_template.get`, err)
@@ -337,7 +384,7 @@ func GetWorkItemTemplate(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, define.Response{
 		Code: define.CodeSuccess, Message: lib_i18n.Show(lang, define.MsgSuccess),
-		Data: toGetWorkItemTemplateResponse(model.Item),
+		Data: toGetWorkItemTemplateResponse(model.Item, model.Manage),
 	})
 }
 
@@ -361,7 +408,7 @@ func CreateWorkItemTemplate(c *gin.Context) {
 	model, err := business.CreateWorkItemTemplate(business.SaveWorkItemTemplateModel{
 		AdminId: c.GetInt(`adminId`), UserId: c.GetInt(`userId`), WorkspaceId: c.Param(`wsId`),
 		TypeKey: typeKey, Name: req.Name, Title: req.Title, Description: req.Description,
-		DescriptionMode: req.DescriptionMode, Fields: createFieldsToModel(req.Fields),
+		DescriptionMode: req.DescriptionMode, Fields: createFieldsToModel(req.Fields), VisibleRoleIDs: req.VisibleRoleIDs,
 	})
 	if err != nil {
 		abortWorkItemTemplateError(c, lang, `work_item_template.create`, err)
@@ -398,9 +445,39 @@ func UpdateWorkItemTemplate(c *gin.Context) {
 	if err := business.UpdateWorkItemTemplate(business.SaveWorkItemTemplateModel{
 		AdminId: c.GetInt(`adminId`), WorkspaceId: c.Param(`wsId`), TemplateId: templateId,
 		TypeKey: typeKey, Name: req.Name, Title: req.Title, Description: req.Description,
-		DescriptionMode: req.DescriptionMode, Fields: updateFieldsToModel(req.Fields),
+		DescriptionMode: req.DescriptionMode, Fields: updateFieldsToModel(req.Fields), VisibleRoleIDs: req.VisibleRoleIDs,
 	}); err != nil {
 		abortWorkItemTemplateError(c, lang, `work_item_template.update`, err)
+		return
+	}
+	c.JSON(http.StatusOK, define.Response{
+		Code: define.CodeSuccess, Message: lib_i18n.Show(lang, define.MsgSuccess),
+	})
+}
+
+// UpdateWorkItemTemplateVisibility 更新工作空间关联的可见角色。
+func UpdateWorkItemTemplateVisibility(c *gin.Context) {
+	lang := lib_i18n.GetLang(c)
+	typeKey := workItemTemplateType(c)
+	if err := validate.WorkItemTemplateType(typeKey); err != nil {
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `work_item_template.visibility.type`, err)
+		return
+	}
+	templateID, err := positiveParam(c, `id`)
+	if err != nil {
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `work_item_template.visibility.id`, err)
+		return
+	}
+	var req updateWorkItemTemplateVisibilityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `work_item_template.visibility.bind`, err)
+		return
+	}
+	if err := business.UpdateWorkItemTemplateVisibility(business.SaveWorkItemTemplateModel{
+		AdminId: c.GetInt(`adminId`), WorkspaceId: c.Param(`wsId`), TemplateId: templateID,
+		TypeKey: typeKey, VisibleRoleIDs: req.VisibleRoleIDs,
+	}); err != nil {
+		abortWorkItemTemplateError(c, lang, `work_item_template.visibility`, err)
 		return
 	}
 	c.JSON(http.StatusOK, define.Response{

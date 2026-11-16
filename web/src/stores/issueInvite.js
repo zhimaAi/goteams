@@ -35,7 +35,7 @@ export const useIssueInviteStore = defineStore("issueInvite", () => {
     try {
       const [configData, list] = await Promise.all([
         getIssueInviteConfig(wsId),
-        listIssueInviteTemplatesApi(wsId),
+        listIssueInviteTemplatesApi(wsId, true),
       ]);
       if (seq !== requestSeq) return;
       appEnabled.value = true;

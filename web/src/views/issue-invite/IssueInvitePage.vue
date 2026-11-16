@@ -175,6 +175,11 @@ const templateKey = computed(() =>
   String(route.params.templateKey || route.query.t || ""),
 );
 const requirementId = computed(() => String(route.params.requirementId || ""));
+const xkfStaffId = computed(() => {
+  const value = route.query.xkf_staff_id;
+  if (value === undefined) return undefined;
+  return typeof value === "string" ? value : "";
+});
 // The detail route has its own address under the history segment.
 const isDetailView = computed(() => route.name === "IssueInviteHistoryDetail");
 // The active tab is fully route-driven: history has its own address, and legacy
@@ -235,6 +240,7 @@ async function loadPickerConfig(seq) {
     inviteKey.value,
     resolvedOpenid.value,
     currentLang.value,
+    xkfStaffId.value,
   );
   if (seq !== entryRequestSeq) return;
   templates.value = config?.templates || [];
@@ -646,8 +652,15 @@ onBeforeUnmount(() => {
 // reload the entry without keeping stale data around. The view flag is part of the
 // key because picker and history share the same invite key and templateKey is empty on both.
 watch(
-  () =>
-    `${inviteKey.value}/${templateKey.value}/${requirementId.value}/${route.name}/${route.query.open_mode || ""}/${route.query.openid || ""}`,
+  [
+    inviteKey,
+    templateKey,
+    requirementId,
+    () => route.name,
+    () => route.query.open_mode,
+    () => route.query.openid,
+    xkfStaffId,
+  ],
   () => {
     initializeOpenid();
     // Reset detail data when navigating away from detail route.

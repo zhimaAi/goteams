@@ -237,7 +237,7 @@ func loadIssueInviteConfigAndTemplates(adminID, workspaceID int, inviteKey strin
 	if config.InviteKey != inviteKey {
 		return define.IssueInviteConfigModel{}, nil, ErrIssueInviteInvalid
 	}
-	templates, err := ListIssueInviteTemplates(adminID, workspaceID, true)
+	templates, err := ListIssueInviteTemplates(ListIssueInviteTemplatesModel{AdminID: adminID, WorkspaceID: workspaceID, EnabledOnly: true})
 	if err != nil {
 		return define.IssueInviteConfigModel{}, nil, err
 	}
@@ -667,7 +667,7 @@ func InvalidateIssueInviteProjectCache(adminID, workspaceID int) error {
 	if config.InviteKey != `` {
 		keys = append(keys, BuildIssueInviteConfigCacheKey(adminID, workspaceID, config.InviteKey))
 	}
-	templates, err := ListIssueInviteTemplates(adminID, workspaceID, false)
+	templates, err := ListIssueInviteTemplates(ListIssueInviteTemplatesModel{AdminID: adminID, WorkspaceID: workspaceID})
 	if err != nil {
 		return err
 	}

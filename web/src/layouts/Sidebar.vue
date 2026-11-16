@@ -128,15 +128,15 @@
           class="community-entry"
           role="button"
           tabindex="0"
-          @click="goEnterpriseAddMember"
-          @keydown.enter="goEnterpriseAddMember"
+          @click="goEnterpriseMembers"
+          @keydown.enter.self="goEnterpriseMembers"
         >
           <TeamOutlined class="community-entry-icon" />
           <span class="community-entry-label">{{
             $t("enterprise_management")
           }}</span>
           <span class="community-entry-tag">{{
-            $t("workspace_addMember")
+              $t("workspace_addMember")
           }}</span>
           <button
             type="button"
@@ -508,7 +508,7 @@ async function handleUserMenuClick({ key }) {
     router.push("/profile");
   }
   if (key === "members") {
-    router.push("/members?tab=members");
+    goEnterpriseMembers();
   }
   if (key === "logout") {
     if (loggingOut.value) return;
@@ -551,8 +551,8 @@ function getEnterpriseEntryStorageKey() {
     : ENTERPRISE_ENTRY_DISMISSED_KEY;
 }
 
-function goEnterpriseAddMember() {
-  router.push("/members?tab=members&addMember=1");
+function goEnterpriseMembers() {
+  router.push("/members?tab=members");
 }
 
 function dismissCommunityEntry() {

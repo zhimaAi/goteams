@@ -53,8 +53,11 @@
           <div class="card-center">
             <CloseCircleFilled class="blocked-icon" />
             <h2 class="license-title">{{ stateTitle }}</h2>
-            <p v-if="licenseStore.reason" class="state-text">
-              {{ $t(`license_reason_${licenseStore.reason}`) }}
+            <p
+              v-if="reasonText && reasonText !== stateTitle"
+              class="state-text"
+            >
+              {{ reasonText }}
             </p>
             <div class="blocked-info">
               <div v-if="licenseStore.corpName" class="info-row">
@@ -71,14 +74,20 @@
               </div>
             </div>
             <div class="blocked-actions">
+              <!-- config_error blocks login entirely, so self-service renewal is unreachable. -->
               <a-button
+                v-if="licenseStore.canLogin"
                 type="primary"
                 class="action-button"
                 @click="handleUpdate"
               >
                 {{ $t("license_update_entry") }}
               </a-button>
-              <a-button class="action-button" @click="contactOpen = true">
+              <a-button
+                :type="licenseStore.canLogin ? 'default' : 'primary'"
+                class="action-button"
+                @click="contactOpen = true"
+              >
                 {{ $t("license_contact_service") }}
               </a-button>
             </div>
@@ -159,6 +168,9 @@ const showTrialForm = computed(
 );
 
 const stateTitle = computed(() => t(`license_state_${licenseStore.state}`));
+const reasonText = computed(() =>
+  licenseStore.reason ? t(`license_reason_${licenseStore.reason}`) : "",
+);
 
 // ---- Activation results ----
 const offlineOpen = ref(false);

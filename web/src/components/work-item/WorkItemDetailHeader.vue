@@ -1,245 +1,263 @@
 <template>
-  <div
-    v-if="detail"
-    class="detail-title"
-    :class="{ 'issue-detail-title': isIssueDetail }"
-  >
-    <div class="detail-heading-main">
-      <WorkItemTypePill :type="detail.type" :ws-id="wsId" />
-      <template v-if="isIssueDetail">
-        <a-select
-          v-if="
-            editingProperty === 'header_status' &&
-            fieldEditable(detail.type, 'status') &&
-            !statusTransitionOn
-          "
-          :value="Number(detail.status_id)"
-          size="small"
-          default-open
-          autofocus
-          style="width: 140px"
-          :aria-label="$t('workspace_status')"
-          @change="(value) => saveProperty('status_id', value)"
-          @dropdownVisibleChange="(open) => !open && (editingProperty = '')"
-        >
-          <a-select-option
-            v-for="item in statusOptions"
-            :key="item.id"
-            :value="item.id"
-            >{{ displayName(item.name) }}</a-select-option
-          >
-        </a-select>
-        <button
-          v-else
-          type="button"
-          class="detail-pill-trigger"
-          :disabled="!fieldEditable(detail.type, 'status')"
-          :aria-label="$t('workspace_status')"
-          @click="openStatusEditor('header_status')"
-        >
-          <StatusPill :text="detail.status_name" :color="detail.status_color" />
-        </button>
-        <template v-if="Number(detail.priority) > 0">
+  <div v-if="detail" class="work-item-detail-header">
+    <div class="detail-title" :class="{ 'issue-detail-title': isIssueDetail }">
+      <div class="detail-heading-main">
+        <WorkItemTypePill :type="detail.type" :ws-id="wsId" />
+        <template v-if="isIssueDetail">
           <a-select
             v-if="
-              editingProperty === 'header_priority' &&
-              fieldEditable(detail.type, 'priority')
+              editingProperty === 'header_status' &&
+              fieldEditable(detail.type, 'status') &&
+              !statusTransitionOn
             "
-            :value="Number(detail.priority) || undefined"
+            :value="Number(detail.status_id)"
             size="small"
             default-open
-            allowClear
             autofocus
-            style="width: 110px"
-            :aria-label="$t('workspace_priority')"
-            @change="(value) => saveProperty('priority', value ?? null)"
+            style="width: 140px"
+            :aria-label="$t('workspace_status')"
+            @change="(value) => saveProperty('status_id', value)"
             @dropdownVisibleChange="(open) => !open && (editingProperty = '')"
           >
             <a-select-option
-              v-for="item in priorities[detail.type] || []"
+              v-for="item in statusOptions"
               :key="item.id"
               :value="item.id"
-              >{{ displayName(item.name || item.label) }}</a-select-option
+              >{{ displayName(item.name) }}</a-select-option
             >
           </a-select>
           <button
             v-else
             type="button"
             class="detail-pill-trigger"
-            :disabled="!fieldEditable(detail.type, 'priority')"
-            :aria-label="$t('workspace_priority')"
-            @click="editingProperty = 'header_priority'"
+            :disabled="!fieldEditable(detail.type, 'status')"
+            :aria-label="$t('workspace_status')"
+            @click="openStatusEditor('header_status')"
           >
-            <PriorityPill
-              :priority="detail.priority"
-              :label="detail.priority_name"
-              :color="detail.priority_color"
+            <StatusPill
+              :text="detail.status_name"
+              :color="detail.status_color"
             />
           </button>
+          <template v-if="Number(detail.priority) > 0">
+            <a-select
+              v-if="
+                editingProperty === 'header_priority' &&
+                fieldEditable(detail.type, 'priority')
+              "
+              :value="Number(detail.priority) || undefined"
+              size="small"
+              default-open
+              allowClear
+              autofocus
+              style="width: 110px"
+              :aria-label="$t('workspace_priority')"
+              @change="(value) => saveProperty('priority', value ?? null)"
+              @dropdownVisibleChange="(open) => !open && (editingProperty = '')"
+            >
+              <a-select-option
+                v-for="item in priorities[detail.type] || []"
+                :key="item.id"
+                :value="item.id"
+                >{{ displayName(item.name || item.label) }}</a-select-option
+              >
+            </a-select>
+            <button
+              v-else
+              type="button"
+              class="detail-pill-trigger"
+              :disabled="!fieldEditable(detail.type, 'priority')"
+              :aria-label="$t('workspace_priority')"
+              @click="editingProperty = 'header_priority'"
+            >
+              <PriorityPill
+                :priority="detail.priority"
+                :label="detail.priority_name"
+                :color="detail.priority_color"
+              />
+            </button>
+          </template>
         </template>
-      </template>
-      <a-input
-        v-if="editingTitle"
-        v-model:value="titleDraft"
-        size="large"
-        class="detail-title-input"
-        autofocus
-        @press-enter="saveTitle"
-        @blur="saveTitle"
-      />
-      <span
-        v-else
-        class="detail-title-text"
-        :class="{ editable: canEdit }"
-        @click="canEdit && (editingTitle = true)"
-      >
-        {{ titleDisplay }}
-      </span>
-      <a-dropdown
-        :trigger="['hover']"
-        placement="bottom"
-        overlay-class-name="detail-copy-dropdown"
-      >
-        <a-button
-          type="text"
-          class="share-button"
-          :aria-label="$t('requirement_copyTitleLink')"
+        <a-input
+          v-if="editingTitle"
+          v-model:value="titleDraft"
+          size="large"
+          class="detail-title-input"
+          autofocus
+          @press-enter="saveTitle"
+          @blur="saveTitle"
+        />
+        <span
+          v-else
+          class="detail-title-text"
+          :class="{ editable: canEdit }"
+          @click="canEdit && (editingTitle = true)"
         >
-          <img v-if="isIssueDetail" :src="copyIcon" alt="" />
-          <CopyOutlined v-else />
-        </a-button>
-        <template #overlay>
-          <a-menu @click="({ key }) => handleCopyAction(key)">
-            <a-menu-item key="titleLink">
-              <template #icon><ShareAltOutlined /></template>
-              {{ $t("requirement_copyTitleLink") }}
-            </a-menu-item>
-            <a-menu-item key="title">
-              <template #icon><FontSizeOutlined /></template>
-              {{ $t("requirement_copyTitle") }}
-            </a-menu-item>
-            <a-menu-item key="link">
-              <template #icon><LinkOutlined /></template>
-              {{ $t("requirement_copyLink") }}
-            </a-menu-item>
-            <a-menu-item key="description">
-              <template #icon><FileTextOutlined /></template>
-              {{ $t("requirement_copyDescription") }}
-            </a-menu-item>
-            <a-menu-item key="titleLinkDescription">
-              <template #icon><SnippetsOutlined /></template>
-              {{ $t("requirement_copyTitleLinkDescription") }}
-            </a-menu-item>
-          </a-menu>
-        </template>
-      </a-dropdown>
-    </div>
-    <div v-if="isIssueDetail" class="issue-detail-meta">
-      <span>{{
-        $t("issue_created_at", {
-          time: formatLocalDate(detail.created_at, true),
-        })
-      }}</span>
-      <span class="issue-meta-divider" aria-hidden="true" />
-      <span>{{ $t("workspace_assignee") }} {{ assigneeDisplay }}</span>
-    </div>
-    <div class="detail-header-actions">
-      <a-tooltip :title="$t('requirement_previousItem')">
-        <a-button
-          type="text"
-          class="detail-action-button"
-          :disabled="!previousNavigationItem"
-          :aria-label="$t('requirement_previousItem')"
-          @click="navigateRelative(-1)"
+          {{ titleDisplay }}
+        </span>
+        <a-dropdown
+          :trigger="['hover']"
+          placement="bottom"
+          overlay-class-name="detail-copy-dropdown"
         >
-          <UpOutlined />
-        </a-button>
-      </a-tooltip>
-      <a-tooltip :title="$t('requirement_nextItem')">
-        <a-button
-          type="text"
-          class="detail-action-button"
-          :disabled="!nextNavigationItem"
-          :aria-label="$t('requirement_nextItem')"
-          @click="navigateRelative(1)"
-        >
-          <DownOutlined />
-        </a-button>
-      </a-tooltip>
-      <a-tooltip v-if="canEdit" :title="$t('requirement_fullscreenEdit')">
-        <a-button
-          type="text"
-          class="detail-action-button"
-          :aria-label="$t('requirement_fullscreenEdit')"
-          @click="openFullscreenEditor"
-        >
-          <EditOutlined />
-        </a-button>
-      </a-tooltip>
-      <a-dropdown
-        v-if="hasMoreActions"
-        :disabled="descriptionEditing"
-        :trigger="['click']"
-        placement="bottomRight"
-      >
-        <a-button
-          type="text"
-          class="detail-action-button"
+          <a-button
+            type="text"
+            class="share-button"
+            :aria-label="$t('requirement_copyTitleLink')"
+          >
+            <img v-if="isIssueDetail" :src="copyIcon" alt="" />
+            <CopyOutlined v-else />
+          </a-button>
+          <template #overlay>
+            <a-menu @click="({ key }) => handleCopyAction(key)">
+              <a-menu-item key="titleLink">
+                <template #icon><ShareAltOutlined /></template>
+                {{ $t("requirement_copyTitleLink") }}
+              </a-menu-item>
+              <a-menu-item key="title">
+                <template #icon><FontSizeOutlined /></template>
+                {{ $t("requirement_copyTitle") }}
+              </a-menu-item>
+              <a-menu-item key="link">
+                <template #icon><LinkOutlined /></template>
+                {{ $t("requirement_copyLink") }}
+              </a-menu-item>
+              <a-menu-item key="description">
+                <template #icon><FileTextOutlined /></template>
+                {{ $t("requirement_copyDescription") }}
+              </a-menu-item>
+              <a-menu-item key="titleLinkDescription">
+                <template #icon><SnippetsOutlined /></template>
+                {{ $t("requirement_copyTitleLinkDescription") }}
+              </a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
+      </div>
+      <div class="detail-header-actions">
+        <a-tooltip :title="$t('requirement_previousItem')">
+          <a-button
+            type="text"
+            class="detail-action-button"
+            :disabled="!previousNavigationItem"
+            :aria-label="$t('requirement_previousItem')"
+            @click="navigateRelative(-1)"
+          >
+            <UpOutlined />
+          </a-button>
+        </a-tooltip>
+        <a-tooltip :title="$t('requirement_nextItem')">
+          <a-button
+            type="text"
+            class="detail-action-button"
+            :disabled="!nextNavigationItem"
+            :aria-label="$t('requirement_nextItem')"
+            @click="navigateRelative(1)"
+          >
+            <DownOutlined />
+          </a-button>
+        </a-tooltip>
+        <a-tooltip v-if="canEdit" :title="$t('requirement_fullscreenEdit')">
+          <a-button
+            type="text"
+            class="detail-action-button"
+            :aria-label="$t('requirement_fullscreenEdit')"
+            @click="openFullscreenEditor"
+          >
+            <EditOutlined />
+          </a-button>
+        </a-tooltip>
+        <a-dropdown
+          v-if="hasMoreActions"
           :disabled="descriptionEditing"
-          :title="$t('common_more')"
-          :aria-label="$t('common_more')"
+          :trigger="['click']"
+          placement="bottomRight"
         >
-          <MoreOutlined />
-        </a-button>
-        <template #overlay>
-          <a-menu @click="({ key }) => handleDetailAction(key)">
-            <a-menu-item v-if="canCreateChild" key="child">
-              <ApartmentOutlined /> {{ $t("requirement_createChild") }}
-            </a-menu-item>
-            <a-menu-item v-if="canCreateDefect" key="createDefect">
-              <BugOutlined /> {{ $t("requirement_createBug") }}
-            </a-menu-item>
-            <a-menu-item v-if="canCopyDetail" key="copy">
-              <CopyOutlined /> {{ copyMenuText }}
-            </a-menu-item>
-            <a-menu-item v-if="canMoveDetail" key="move">
-              <FolderOpenOutlined /> {{ moveMenuText }}
-            </a-menu-item>
-            <a-menu-item v-if="canConvertDetail" key="convert">
-              <SwapOutlined /> {{ convertMenuText }}
-            </a-menu-item>
-            <a-menu-item v-if="canMergeDetail" key="merge">
-              <MergeCellsOutlined /> {{ $t("workItemAction_mergeDefect") }}
-            </a-menu-item>
-            <a-menu-divider v-if="canDeleteDetail && hasNonDeleteAction" />
-            <a-menu-item v-if="canDeleteDetail" key="delete" danger>
-              <DeleteOutlined /> {{ $t("common_delete") }}
-            </a-menu-item>
-          </a-menu>
-        </template>
-      </a-dropdown>
-      <a-tooltip :title="$t('requirement_openNewWindow')" v-if="mode != 'page'">
-        <a-button
-          type="text"
-          class="detail-action-button"
-          :disabled="descriptionEditing"
-          :aria-label="$t('requirement_openNewWindow')"
-          @click="openInNewWindow"
+          <a-button
+            type="text"
+            class="detail-action-button"
+            :disabled="descriptionEditing"
+            :title="$t('common_more')"
+            :aria-label="$t('common_more')"
+          >
+            <MoreOutlined />
+          </a-button>
+          <template #overlay>
+            <a-menu @click="({ key }) => handleDetailAction(key)">
+              <a-menu-item v-if="canCreateChild" key="child">
+                <ApartmentOutlined /> {{ $t("requirement_createChild") }}
+              </a-menu-item>
+              <a-menu-item v-if="canCreateDefect" key="createDefect">
+                <BugOutlined /> {{ $t("requirement_createBug") }}
+              </a-menu-item>
+              <a-menu-item v-if="canCopyDetail" key="copy">
+                <CopyOutlined /> {{ copyMenuText }}
+              </a-menu-item>
+              <a-menu-item v-if="canMoveDetail" key="move">
+                <FolderOpenOutlined /> {{ moveMenuText }}
+              </a-menu-item>
+              <a-menu-item v-if="canConvertDetail" key="convert">
+                <SwapOutlined /> {{ convertMenuText }}
+              </a-menu-item>
+              <a-menu-item v-if="canMergeDetail" key="merge">
+                <MergeCellsOutlined /> {{ $t("workItemAction_mergeDefect") }}
+              </a-menu-item>
+              <a-menu-divider v-if="canDeleteDetail && hasNonDeleteAction" />
+              <a-menu-item v-if="canDeleteDetail" key="delete" danger>
+                <DeleteOutlined /> {{ $t("common_delete") }}
+              </a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
+        <a-tooltip
+          :title="$t('requirement_openNewWindow')"
+          v-if="mode != 'page'"
         >
-          <ExportOutlined />
-        </a-button>
-      </a-tooltip>
-      <a-tooltip :title="$t('common_close')">
-        <a-button
-          type="text"
-          class="detail-action-button detail-close"
-          :aria-label="$t('common_close')"
-          @click="requestClose"
-        >
-          <img v-if="isIssueDetail" :src="closeIcon" alt="" />
-          <CloseOutlined v-else />
-        </a-button>
-      </a-tooltip>
+          <a-button
+            type="text"
+            class="detail-action-button"
+            :disabled="descriptionEditing"
+            :aria-label="$t('requirement_openNewWindow')"
+            @click="openInNewWindow"
+          >
+            <ExportOutlined />
+          </a-button>
+        </a-tooltip>
+        <a-tooltip :title="$t('common_close')">
+          <a-button
+            type="text"
+            class="detail-action-button detail-close"
+            :aria-label="$t('common_close')"
+            @click="requestClose"
+          >
+            <img v-if="isIssueDetail" :src="closeIcon" alt="" />
+            <CloseOutlined v-else />
+          </a-button>
+        </a-tooltip>
+      </div>
+      <div v-if="isIssueDetail" class="issue-detail-meta">
+        <span>{{
+          $t("issue_created_at", {
+            time: formatLocalDate(detail.created_at, true),
+          })
+        }}</span>
+        <span class="issue-meta-divider" aria-hidden="true" />
+        <span>{{ $t("workspace_assignee") }} {{ assigneeDisplay }}</span>
+      </div>
+    </div>
+    <div
+      v-if="isIssueDetail && issueStatusActions.length"
+      class="issue-status-action-buttons"
+    >
+      <a-button
+        v-for="action in issueStatusActions"
+        :key="action.id"
+        size="small"
+        class="issue-status-action-button"
+        @click="runStatusAction(detail, action)"
+      >
+        {{ action.name }}
+      </a-button>
     </div>
   </div>
   <span v-else>{{ $t("requirement_detail") }}</span>
@@ -283,6 +301,8 @@ const {
   statusOptions,
   statusTransitionOn,
   openStatusEditor,
+  statusActionsFor,
+  runStatusAction,
   priorities,
   displayName,
   saveProperty,
@@ -320,7 +340,33 @@ const assigneeDisplay = computed(() => {
     (Array.isArray(names) ? names.filter(Boolean).join(";") : names) || "—"
   );
 });
+const issueStatusActions = computed(() => statusActionsFor(detail.value));
 </script>
 <style scoped lang="less">
 @import "./workItemDetail.less";
+
+.work-item-detail-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+.issue-status-action-buttons {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.issue-status-action-button {
+  min-height: 28px;
+  height: auto;
+  max-width: 100%;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 </style>
