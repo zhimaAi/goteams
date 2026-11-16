@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"goteams/internal/app/goteams/define"
@@ -497,6 +498,9 @@ func seedWorkspaceWorkflow(adminId int, wsId string, now int) error {
 			return err
 		}
 	}
+	if err := seedWorkspaceSeverities(nil, adminId, cast.ToInt(wsId), false); err != nil {
+		return err
+	}
 	// Write workspace settings: initial status = pending_plan, final statuses = done, closed and rejected.
 	settings := msql.Datas{
 		`admin_id`:                         adminId,
@@ -614,19 +618,31 @@ type ResetStatusesModel struct {
 // ResetStatuses restores the statuses of the given type under a workspace to the built-in defaults.
 // It clears user-created/deleted statuses of that type and re-seeds them, and resets the initial/terminal status fields for that type in workspaces_settings.
 func ResetStatuses(model ResetStatusesModel) error {
-	now := tool.Time2Int()
-	// Delete the existing statuses of this type.
-	delStatusM := msql.Model(define.TableWorkItemStatuses, define.Postgres)
-	if _, err := delStatusM.Where2([][]string{
-		{`admin_id`, cast.ToString(model.AdminId)},
-		{`workspace_id`, model.WsId},
-		{`type_key`, model.TypeKey},
-	}).Delete(); err != nil {
-		logs.Error("reset statuses delete sql:%s, err:%s", delStatusM.GetLastSql(), err.Error())
+	switch model.TypeKey {
+	case define.TypeKeyRequirement, define.TypeKeyDefect, define.TypeKeyPlanning:
+	default:
+		return fmt.Errorf("invalid status type %q", model.TypeKey)
+	}
+	tx, err := msql.Begin(define.Postgres)
+	if err != nil {
 		return err
 	}
-
-	// Re-seed the built-in statuses and record the initial/terminal status IDs.
+	defer func() { _ = tx.Rollback() }()
+	workspaceType, err := lockStatusActionWorkspace(tx, model.AdminId, cast.ToInt(model.WsId), true)
+	if err != nil {
+		return err
+	}
+	if workspaceType == define.WorkspaceTypeIssue && model.TypeKey == define.TypeKeyRequirement {
+		if _, err = statusActionExec(tx, "DELETE FROM "+define.TableWorkspaceStatusActionMappings+statusActionScope+statusActionType,
+			model.AdminId, model.WsId); err != nil {
+			return err
+		}
+	}
+	if _, err = statusActionExec(tx, "DELETE FROM "+define.TableWorkItemStatuses+" WHERE admin_id=$1 AND workspace_id=$2 AND type_key=$3",
+		model.AdminId, model.WsId, model.TypeKey); err != nil {
+		return err
+	}
+	now := tool.Time2Int()
 	initialStatusId := 0
 	finalStatusIds := []int{}
 	completedStatusIds := []int{}
@@ -634,7 +650,13 @@ func ResetStatuses(model ResetStatusesModel) error {
 		if status.TypeKey != model.TypeKey {
 			continue
 		}
-		id, err := ensureWorkspaceStatus(model.AdminId, model.WsId, status, now)
+		rows, err := statusActionRows(tx, "INSERT INTO "+define.TableWorkItemStatuses+
+			" (admin_id,workspace_id,type_key,name,color,sort_order,is_default,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8) RETURNING id",
+			model.AdminId, model.WsId, status.TypeKey, status.Name, status.Color, status.SortOrder, status.IsDefault, now)
+		if err != nil {
+			return err
+		}
+		id, err := strconv.Atoi(rows[0]["id"])
 		if err != nil {
 			return err
 		}
@@ -648,46 +670,28 @@ func ResetStatuses(model ResetStatusesModel) error {
 			finalStatusIds = append(finalStatusIds, id)
 		}
 	}
-
-	// Reset the initial/terminal status fields for this type in workspaces_settings.
-	fieldInit, fieldFinal := settingsStatusFields(model.TypeKey)
-	settingsM := msql.Model(define.TableWorkspaceSettings, define.Postgres)
-	exist, err := settingsM.Where2([][]string{
-		{`admin_id`, cast.ToString(model.AdminId)},
-		{`workspace_id`, model.WsId},
-	}).Value(`id`)
-	if err != nil {
-		logs.Error("reset statuses settings check sql:%s, err:%s", settingsM.GetLastSql(), err.Error())
+	initial, final := settingsStatusFields(model.TypeKey)
+	columns := "admin_id,workspace_id,created_at,updated_at," + initial + "," + final
+	values := "$1,$2,$3,$3,$4,$5"
+	updates := "updated_at=EXCLUDED.updated_at," + initial + "=EXCLUDED." + initial + "," + final + "=EXCLUDED." + final
+	args := []any{model.AdminId, model.WsId, now, initialStatusId, joinIntSlice(finalStatusIds)}
+	if model.TypeKey != define.TypeKeyPlanning {
+		completed := model.TypeKey + "_completed_status_ids"
+		columns += "," + completed
+		values += ",$6"
+		updates += "," + completed + "=EXCLUDED." + completed
+		args = append(args, joinIntSlice(completedStatusIds))
+	}
+	if _, err = statusActionExec(tx, "INSERT INTO "+define.TableWorkspaceSettings+" ("+columns+") VALUES ("+values+
+		") ON CONFLICT (admin_id,workspace_id) DO UPDATE SET "+updates, args...); err != nil {
 		return err
 	}
-	data := msql.Datas{
-		fieldInit:    cast.ToString(initialStatusId),
-		fieldFinal:   joinIntSlice(finalStatusIds),
-		`updated_at`: now,
+	if err = resetDisplaySettingStatusesTx(tx, model.AdminId, model.WsId, model.TypeKey); err != nil {
+		logs.Error("重置状态显示设置失败: %s", err.Error())
+		return err
 	}
-	if model.TypeKey != define.TypeKeyPlanning {
-		data[model.TypeKey+"_completed_status_ids"] = joinIntSlice(completedStatusIds)
-	}
-	if len(exist) > 0 {
-		if _, err = settingsM.Where2([][]string{
-			{`admin_id`, cast.ToString(model.AdminId)},
-			{`workspace_id`, model.WsId},
-		}).Update(data); err != nil {
-			logs.Error("reset statuses settings update sql:%s, err:%s", settingsM.GetLastSql(), err.Error())
-			return err
-		}
-	} else {
-		data[`admin_id`] = model.AdminId
-		data[`workspace_id`] = model.WsId
-		data[`created_at`] = now
-		if _, err = settingsM.Insert(data); err != nil {
-			logs.Error("reset statuses settings insert sql:%s, err:%s", settingsM.GetLastSql(), err.Error())
-			return err
-		}
-	}
-	logs.Info("workspace [%s] %s statuses reset to default", model.WsId, model.TypeKey)
-	if err := ResetDisplaySettingStatuses(model.AdminId, model.WsId, model.TypeKey); err != nil {
-		logs.Error("reset display setting statuses failed, err:%s", err.Error())
+	if err = tx.Commit(); err != nil {
+		logs.Error("提交状态重置事务失败: %s", err.Error())
 		return err
 	}
 	return nil
@@ -742,11 +746,12 @@ var defectPresetFields = []presetField{
 	{Key: `status`, Enabled: 1, Editable: 0, Locked: 1, SortOrder: 2},
 	{Key: `version`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 3},
 	{Key: `priority`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 4},
-	{Key: `planned_start_date`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 5},
-	{Key: `planned_end_date`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 6},
-	{Key: `assignee`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 7},
-	{Key: `created_at`, Enabled: 1, Editable: 0, Locked: 0, SortOrder: 8},
-	{Key: `created_by`, Enabled: 1, Editable: 0, Locked: 0, SortOrder: 9},
+	{Key: `severity_id`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 5},
+	{Key: `planned_start_date`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 6},
+	{Key: `planned_end_date`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 7},
+	{Key: `assignee`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 8},
+	{Key: `created_at`, Enabled: 1, Editable: 0, Locked: 0, SortOrder: 9},
+	{Key: `created_by`, Enabled: 1, Editable: 0, Locked: 0, SortOrder: 10},
 }
 
 // planningPresetFields are the built-in fields for planning: row index, planning name, and status are locked (cannot be closed).
@@ -1572,8 +1577,11 @@ var workspaceTablesByWorkspaceId = append([]string{
 	define.TablePlanningGroups,
 	define.TableVersions,
 	define.TableWorkspaceMembers,
+	define.TableWorkspaceStatusActionMappings,
+	define.TableWorkspaceStatusActions,
 	define.TableWorkItemStatuses,
 	define.TableWorkItemPriorities,
+	define.TableWorkspaceSeverities,
 	define.TableWorkItemFieldConfigs,
 	define.TableCustomFields,
 	define.TableWorkspaceSettings,
@@ -1661,6 +1669,9 @@ func DeleteWorkspace(model DeleteWorkspaceModel) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if _, err = lockStatusActionWorkspace(tx, model.AdminId, model.WsId, true); err != nil {
+		return err
+	}
 	if _, err = getSLASettingsTx(tx, model.AdminId, model.WsId, true); err != nil {
 		return err
 	}

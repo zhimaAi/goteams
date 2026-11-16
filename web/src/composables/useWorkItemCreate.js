@@ -96,6 +96,7 @@ export function useWorkItemCreate() {
   const descriptionMode = ref("");
   const status = ref(undefined);
   const priority = ref(undefined);
+  const severityId = ref(undefined);
   const versionId = ref(undefined);
   const assigneeIds = ref([]);
   const plannedStartDate = ref(null);
@@ -160,6 +161,7 @@ export function useWorkItemCreate() {
   const memberOpts = ref([]);
   const statuses = ref([]);
   const priorityOptions = ref([]);
+  const severityOptions = ref([]);
   const fieldConfigs = ref([]);
   const categoryOptions = ref([]);
   const customFields = ref([]);
@@ -170,6 +172,7 @@ export function useWorkItemCreate() {
     "status",
     "version",
     "priority",
+    "severity_id",
     "category",
     "planned_start_date",
     "planned_end_date",
@@ -193,6 +196,7 @@ export function useWorkItemCreate() {
     const labels = {
       status: $t("workspace_status"),
       priority: $t("workspace_priority"),
+      severity_id: $t("workspace_severity"),
       version: $t("requirement_filterVersion"),
       category: $t("workspace_field_category"),
       assignee: $t("workspace_assignee"),
@@ -209,6 +213,8 @@ export function useWorkItemCreate() {
 
   function fieldEnabled(key) {
     const config = fieldConfigs.value.find((item) => item.key === key);
+    if (key === "severity_id" && (type.value !== "defect" || !config))
+      return false;
     if (requirementWorkHourKeys.has(key) && !config) return false;
     return !config || Number(config.enabled) === 1;
   }
@@ -369,6 +375,8 @@ export function useWorkItemCreate() {
     members: memberOpts,
     statuses,
     priorities: priorityOptions,
+    severityId,
+    severityOptions,
     fieldConfigs,
     categories: categoryOptions,
     customFields,
@@ -469,6 +477,8 @@ export function useWorkItemCreate() {
     assigneeIds.value = [];
     status.value = undefined;
     priority.value = undefined;
+    severityId.value = undefined;
+    severityOptions.value = [];
     estimatedWorkHours.value = 0;
     await authStore.fetchProjectPermissions(value);
     await loadOptions();
@@ -494,6 +504,8 @@ export function useWorkItemCreate() {
     descriptionMode,
     status,
     priority,
+    severityId,
+    severityOptions,
     versionId,
     assigneeIds,
     plannedStartDate,
@@ -559,6 +571,7 @@ export function useWorkItemCreate() {
     descriptionMode,
     status,
     priority,
+    severityId,
     versionId,
     assigneeIds,
     plannedStartDate,
@@ -576,6 +589,7 @@ export function useWorkItemCreate() {
     memberOpts,
     statuses,
     priorityOptions,
+    severityOptions,
     categoryOptions,
     customFieldMembers,
     customValues,

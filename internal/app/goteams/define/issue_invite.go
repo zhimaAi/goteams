@@ -131,6 +131,7 @@ type IssueInviteConfigUpdateModel struct {
 
 // IssueInviteTemplateModel is an independent invitation template.
 type IssueInviteTemplateModel struct {
+	VisibleRoleIDs   []int
 	ID               int
 	AdminID          int
 	WorkspaceID      int
@@ -157,6 +158,7 @@ type IssueInviteTemplateModel struct {
 
 // IssueInviteTemplateUpdateModel carries editable copied-template data.
 type IssueInviteTemplateUpdateModel struct {
+	VisibleRoleIDs   []int
 	AdminID          int
 	WorkspaceID      int
 	TemplateID       int
@@ -248,6 +250,7 @@ type IssueInviteHistoryModel struct {
 
 // IssueInviteTemplateCreateModel carries one new independent invitation template.
 type IssueInviteTemplateCreateModel struct {
+	VisibleRoleIDs   []int
 	AdminID          int
 	WorkspaceID      int
 	TypeKey          string

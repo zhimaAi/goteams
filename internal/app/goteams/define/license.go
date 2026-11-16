@@ -7,8 +7,8 @@ package define
 // environment variables or -ldflags, and no cloud runtime branch exists here.
 const BuildEdition = `commercial`
 
-// BuildVersion and BuildCommit are injected by the commercial packaging script via -ldflags -X.
-// v0.0.0-dev is only allowed for local development startup; packaging and the upgrade tool reject it.
+// BuildVersion and BuildCommit default to development values; build pipelines may inject them
+// with -ldflags -X.
 var (
 	BuildVersion = `v0.0.0-dev`
 	BuildCommit  = `unknown`
@@ -180,7 +180,7 @@ func LicenseStateCanLogin(state string) bool {
 func LicenseStateAllowsManagementLogin(state string) bool {
 	switch state {
 	case LicenseStateExpired, LicenseStateInvalid, LicenseStateDeviceMismatch,
-		LicenseStateNotYetValid, LicenseStateClockInvalid, LicenseStateConfigError:
+		LicenseStateNotYetValid, LicenseStateClockInvalid:
 		return true
 	default:
 		return LicenseStateCanLogin(state)

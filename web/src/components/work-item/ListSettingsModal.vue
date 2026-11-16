@@ -265,6 +265,14 @@ const effectiveFields = computed(() => {
     result.push(withVisible(systemField));
     systemByKey.delete(preference.key);
   }
+  const severity = systemByKey.get("builtin:severity_id");
+  const priorityIndex = result.findIndex(
+    (field) => field.preferenceKey === "builtin:priority",
+  );
+  if (severity && priorityIndex >= 0) {
+    result.splice(priorityIndex + 1, 0, withVisible(severity));
+    systemByKey.delete(severity.preferenceKey);
+  }
   result.push(...[...systemByKey.values()].map(withVisible));
   return result;
 });

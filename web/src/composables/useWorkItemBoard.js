@@ -56,6 +56,7 @@ import {
   NUMERIC_SEARCH_OPERATORS,
 } from "@/constants/customField";
 import { isStatusTransitionEnabled } from "@/utils/statusTransition";
+import { useWorkItemStatusActions } from "@/composables/useWorkItemStatusActions";
 import { sortFieldsByOrder } from "@/utils/fieldOrder";
 import {
   useWorkItemViews,
@@ -371,6 +372,7 @@ export function useWorkItemBoard(options = {}) {
   const total = ref(0);
   const selectedRowKeys = ref([]);
   const editingCell = ref(null);
+  const savingSeverityRows = new Set();
   const expandedRowKeys = ref([]);
   const allTreeExpanded = ref(false);
   const childrenMap = ref({});
@@ -564,6 +566,28 @@ export function useWorkItemBoard(options = {}) {
   const workspaceMetadata = ref(issueMetadata?.value || null);
   const transitionOpen = ref(false);
   const transitionItem = ref(null);
+  const transitionStatusAction = ref(null);
+  const {
+    statusActionsEnabled,
+    statusActionsFor,
+    runStatusAction,
+    refreshStatusActions,
+  } = useWorkItemStatusActions({
+    wsId,
+    metadata: workspaceMetadata,
+    canEditStatus: (type) => fieldEditable(type, "status"),
+    openTransition(record, action) {
+      if (
+        listPreferences.viewMode !== "list" ||
+        activeTab.value !== "requirement"
+      )
+        return;
+      transitionItem.value = record;
+      transitionStatusAction.value = action;
+      transitionOpen.value = true;
+    },
+    onRefresh: fetchRequirements,
+  });
 
   const selectedRequirementCategory = computed(() => {
     if (!selectedCategoryKey.value.startsWith("category:")) return null;
@@ -1241,6 +1265,7 @@ export function useWorkItemBoard(options = {}) {
       columnKey: "category",
     },
     priority: { label: t("workspace_priority"), columnKey: "priority" },
+    severity_id: { label: t("workspace_severity"), columnKey: "severity_id" },
     planned_start_date: {
       label: t("workspace_plannedStartDateCol"),
       columnKey: "dueDate",
@@ -1353,7 +1378,7 @@ export function useWorkItemBoard(options = {}) {
       configs.length
         ? configs
         : Object.keys(builtinListFieldMeta.value)
-            .filter((key) => key !== "aging")
+            .filter((key) => key !== "aging" && key !== "severity_id")
             .map((key, index) => ({
               key,
               enabled: 1,
@@ -1370,7 +1395,11 @@ export function useWorkItemBoard(options = {}) {
         visible: Number(config.enabled) === 1,
         sort_order: config.sort_order,
       }))
-      .filter((field) => field.columnKey);
+      .filter(
+        (field) =>
+          field.columnKey &&
+          (field.columnKey !== "severity_id" || type === "defect"),
+      );
     const customFields = (customFieldsByType.value[type] || []).map(
       (field) => ({
         kind: "custom",
@@ -2351,6 +2380,14 @@ export function useWorkItemBoard(options = {}) {
         },
         100,
       ),
+      severity_id: editableDataColumn(
+        {
+          title: t("workspace_severity"),
+          key: "severity_id",
+          width: 120,
+        },
+        "severity_id",
+      ),
       priority: editableDataColumn(
         {
           title: t("workspace_priority"),
@@ -2518,6 +2555,14 @@ export function useWorkItemBoard(options = {}) {
         })
         .filter(Boolean),
     ];
+    if (type === "requirement" && statusActionsEnabled.value) {
+      columns.push({
+        title: t("status_action_column"),
+        key: "statusActions",
+        width: 164,
+        fixed: "right",
+      });
+    }
     const titleColumn = columns.find((column) => column.key === "title");
     if (titleColumn && !columnWidths[type]?.title) {
       const fixedWidth = columns.reduce(
@@ -3188,10 +3233,23 @@ export function useWorkItemBoard(options = {}) {
     const editable =
       canEditRecord(record) && fieldEditable(record.type, configKey);
     if (!editable) return {};
-    return {
+    const cell = {
       class: "editable-table-cell",
       onClick: () => startCellEdit(record, field, customField),
     };
+    if (field === "severity_id") {
+      cell.tabindex = 0;
+      cell.onKeydown = (event) => {
+        if (
+          event.target === event.currentTarget &&
+          ["Enter", " "].includes(event.key)
+        ) {
+          event.preventDefault();
+          cell.onClick();
+        }
+      };
+    }
+    return cell;
   }
 
   function startCellEdit(record, field, customField) {
@@ -3205,6 +3263,8 @@ export function useWorkItemBoard(options = {}) {
 
   function startEdit(record, field, customField) {
     if (!canEditRecord(record)) return false;
+    if (field === "severity_id" && savingSeverityRows.has(String(record.id)))
+      return false;
     const configKey =
       { status_id: "status", version_id: "version", assignee_ids: "assignee" }[
         field
@@ -3241,6 +3301,7 @@ export function useWorkItemBoard(options = {}) {
       isStatusTransitionEnabled(workspaceMetadata.value?.settings, record.type)
     ) {
       transitionItem.value = record;
+      transitionStatusAction.value = null;
       transitionOpen.value = true;
       return;
     }
@@ -3261,6 +3322,7 @@ export function useWorkItemBoard(options = {}) {
       transitionItem.value.id,
       patch,
     );
+    if (transitionStatusAction.value) void fetchRequirements();
   }
   function clearEditing() {
     editingCell.value = null;
@@ -3515,8 +3577,16 @@ export function useWorkItemBoard(options = {}) {
     if (!isEditing(record, field)) return;
     clearEditing();
     if (String(record[field]) === String(value)) return;
+    const severityChange = field === "severity_id";
+    const rowKey = String(record.id);
+    if (severityChange) savingSeverityRows.add(rowKey);
     try {
       const updatedValues = { [field]: value };
+      const severity = severityChange
+        ? workspaceMetadata.value?.defect?.severities?.find(
+            (item) => Number(item.id) === value,
+          )
+        : undefined;
       await updateRequirement(wsId.value, record.id, updatedValues);
       if (field === "status_id") {
         const status = statusesForType(record.type).find(
@@ -3531,6 +3601,10 @@ export function useWorkItemBoard(options = {}) {
         );
         updatedValues.priority_name = priority?.label || "";
         updatedValues.priority_color = priority?.color || "";
+      }
+      if (severityChange) {
+        updatedValues.severity_name = severity?.label || "";
+        updatedValues.severity_color = severity?.color || "";
       }
       if (field === "assignee_ids") {
         const ids = Array.isArray(value) ? value : [];
@@ -3568,6 +3642,8 @@ export function useWorkItemBoard(options = {}) {
       showWorkItemUpdateSuccess(t("workspace_updateSuccess"));
     } catch {
       /* handled by interceptor; record still contains the original value */
+    } finally {
+      if (severityChange) savingSeverityRows.delete(rowKey);
     }
   }
 
@@ -4266,6 +4342,10 @@ export function useWorkItemBoard(options = {}) {
     workspaceMetadata,
     transitionOpen,
     transitionItem,
+    transitionStatusAction,
+    statusActionsFor,
+    runStatusAction,
+    refreshStatusActions,
     workspaceName,
     projectEnded,
     projectIcon,

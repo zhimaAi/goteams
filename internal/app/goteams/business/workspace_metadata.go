@@ -70,10 +70,12 @@ type WorkspaceMetadataCustomFieldModel struct {
 
 // WorkspaceMetadataGroupModel is the metadata group for a single work item type.
 type WorkspaceMetadataGroupModel struct {
-	Statuses     []WorkspaceMetadataStatusModel
-	Priorities   []WorkspaceMetadataPriorityModel
-	FieldConfigs []WorkspaceMetadataFieldConfigModel
-	CustomFields []WorkspaceMetadataCustomFieldModel
+	StatusActions *WorkspaceStatusActionsModel
+	Statuses      []WorkspaceMetadataStatusModel
+	Severities    []SeverityModel
+	Priorities    []WorkspaceMetadataPriorityModel
+	FieldConfigs  []WorkspaceMetadataFieldConfigModel
+	CustomFields  []WorkspaceMetadataCustomFieldModel
 }
 
 // WorkspaceMetadataSettingsModel holds the workflow initial/terminal status config in the metadata.
@@ -218,6 +220,12 @@ func GetWorkspaceMetadata(model WorkspaceMetadataModel) (WorkspaceMetadataModel,
 		})
 	}
 
+	severities, err := ListSeverities(SeveritySettingsModel{AdminId: model.AdminId, WorkspaceId: cast.ToInt(model.WorkspaceId), Lang: model.Lang})
+	if err != nil {
+		return WorkspaceMetadataModel{}, err
+	}
+	model.Defect.Severities = severities.Items
+
 	fieldM := msql.Model(define.TableWorkItemFieldConfigs, define.Postgres)
 	fieldRows, err := fieldM.Where2([][]string{
 		{`admin_id`, cast.ToString(model.AdminId)},
@@ -305,6 +313,14 @@ func GetWorkspaceMetadata(model WorkspaceMetadataModel) (WorkspaceMetadataModel,
 		return WorkspaceMetadataModel{}, err
 	}
 	model.Workspace = workspace
+
+	if workspace != nil && workspace.WorkspaceType == define.WorkspaceTypeIssue {
+		config, err := GetWorkspaceStatusActions(WorkspaceStatusActionsModel{AdminId: model.AdminId, WorkspaceId: workspace.Id}, false)
+		if err != nil {
+			return WorkspaceMetadataModel{}, err
+		}
+		model.Requirement.StatusActions = &config
+	}
 
 	members, err := ListMembersByWorkspace(ListWorkspaceMembersModel{AdminId: model.AdminId, WorkspaceId: model.WorkspaceId})
 	if err != nil {

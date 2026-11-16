@@ -243,7 +243,7 @@ func notificationItemType(typeKey string) string {
 
 func notificationContent(event notificationEvent, actor, itemType string) string {
 	fieldLabels := map[string]string{
-		`status`: `状态`, `priority`: `优先级`, `assignee`: `处理人`, `title`: `标题`, `description`: `描述`,
+		`status`: `状态`, `priority`: `优先级`, `severity_id`: `严重等级`, `assignee`: `处理人`, `title`: `标题`, `description`: `描述`,
 		`planned_end_date`: `截止日期`, `planned_start_date`: `开始日期`, `version_id`: `所属迭代`, `parent_id`: `父级工作项`,
 		`work_hours`: `工时`,
 	}

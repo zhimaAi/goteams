@@ -239,9 +239,11 @@ watch(() => [props.wsId, props.typeKey, props.reloadKey], load, {
   color: rgba(0, 0, 0, 0.45);
   font-size: 13px;
 }
-.transition-required-col,
-.transition-action-col {
+.transition-required-col {
   text-align: center;
+}
+.transition-action-col {
+  text-align: right;
 }
 .add-field-btn {
   padding-left: 4px;

@@ -3,17 +3,44 @@
 package initialize
 
 import (
+	"fmt"
 	"goteams/internal/app/goteams/define"
 	"goteams/internal/pkg/lib_storage"
+	"os"
+	"runtime"
+	"strings"
 
+	"github.com/Unknwon/goconfig"
 	"github.com/zhimaAi/go_tools/logs"
+	"github.com/zhimaAi/go_tools/tool"
 )
 
-// initConfig loads the configuration from the build-tagged source (external INI file, or
-// the embedded template of the commercial offline build) and reads every section.
-// applyDeploymentEnv afterwards lets GOTEAMS_* environment variables override single keys.
+// initConfig loads the INI configuration file.
+//   - Production: configs/goteams/config_pro.ini
+//   - Development (container): use the DEV env var (e.g. goteams-dev) and take the segment after '-' to build the config,
+//     e.g. DEV=goteams-dev → configs/goteams/config_dev.ini
+//   - Local development (Windows/Mac): configs/goteams/config_loc.ini
 func initConfig() {
-	config, err := openConfig()
+	file := `configs/goteams/config_pro.ini`
+	if define.IsDev {
+		if tool.InArrayString(runtime.GOOS, []string{`windows`, `darwin`}) {
+			define.IsLoc = true
+			file = `configs/goteams/config_loc.ini`
+		} else {
+			// Container environment: take the segment after '-' from the DEV env var, e.g. goteams-dev → dev.
+			dev := `dev`
+			if devEnv := os.Getenv(`DEV`); devEnv != `` {
+				parts := strings.Split(devEnv, `-`)
+				if len(parts) >= 2 {
+					dev = parts[1]
+				}
+			}
+			file = fmt.Sprintf(`configs/goteams/config_%s.ini`, dev)
+		}
+	}
+
+	logs.Info(`read config file: %s`, file)
+	config, err := goconfig.LoadConfigFile(file)
 	if err != nil {
 		logs.Error(err.Error())
 		panic(`read config file error`)
@@ -25,35 +52,30 @@ func initConfig() {
 		logs.Error(err.Error())
 		panic(`read config webservice error`)
 	}
-	applyDeploymentEnv(`webservice`, define.Config.WebService)
 
 	define.Config.Session, err = config.GetSection(`session`)
 	if err != nil {
 		logs.Error(err.Error())
 		panic(`read config session error`)
 	}
-	applyDeploymentEnv(`session`, define.Config.Session)
 
 	define.Config.Redis, err = config.GetSection(`redis`)
 	if err != nil {
 		logs.Error(err.Error())
 		panic(`read config redis error`)
 	}
-	applyDeploymentEnv(`redis`, define.Config.Redis)
 
 	define.Config.Postgres, err = config.GetSection(`postgres`)
 	if err != nil {
 		logs.Error(err.Error())
 		panic(`read config postgres error`)
 	}
-	applyDeploymentEnv(`postgres`, define.Config.Postgres)
 
 	// oss-s3 is optional; when missing or failing to load, the system automatically falls back to local storage.
 	ossS3, err := config.GetSection(`oss-s3`)
 	if err != nil {
 		logs.Error(`read config oss-s3 section error: %s`, err.Error())
 	} else {
-		applyDeploymentEnv(`oss-s3`, ossS3)
 		define.Config.OssS3 = ossS3
 		if ossS3[`enable`] == `true` {
 			if validateErr := lib_storage.ValidateConfig(ossS3); validateErr != nil {
@@ -63,8 +85,6 @@ func initConfig() {
 		}
 	}
 
-	// Commercial builds never register cloud operations open APIs. Keep the map empty so
-	// accidentally wiring an old handler cannot inherit a packaged shared secret.
 	define.Config.OpenApi = map[string]string{}
 
 	define.Config.Email, err = config.GetSection(`email`)
@@ -72,33 +92,20 @@ func initConfig() {
 		logs.Error(err.Error())
 		panic(`read config email error`)
 	}
-	applyDeploymentEnv(`email`, define.Config.Email)
 
 	// client section is optional; defaults are used when missing.
 	define.Config.Client, err = config.GetSection(`client`)
 	if err != nil {
 		logs.Error(`read config client section error: %s`, err.Error())
 		define.Config.Client = map[string]string{}
-	} else {
-		applyDeploymentEnv(`client`, define.Config.Client)
 	}
 
-	// 未配置主密钥时保留明文存储；私有化包额外支持部署环境变量和格式校验。
+	// session-encryption section is optional; when missing, session-log envelope
+	// encryption is disabled and the cloud degrades to storing plaintext in OSS.
 	define.Config.SessionEncryption, err = config.GetSection(`session-encryption`)
 	if err != nil {
 		logs.Error(`read config session-encryption section error: %s`, err.Error())
 		define.Config.SessionEncryption = map[string]string{}
-	}
-	if err = configureSessionEncryption(define.Config.SessionEncryption); err != nil {
-		logs.Error(`validate config session-encryption section error: %s`, err.Error())
-		panic(`validate config session-encryption section error`)
-	}
-
-	// template section is optional; defaults are used when missing.
-	define.Config.Template, err = config.GetSection(`template`)
-	if err != nil {
-		logs.Error(`read config template section error: %s`, err.Error())
-		define.Config.Template = map[string]string{}
 	}
 
 	// oauth section is optional; third-party scan-code login stays disabled when it is missing.
@@ -136,27 +143,27 @@ func initConfig() {
 		define.Config.Sso = map[string]string{}
 	}
 
-	// Development INIs intentionally omit commercial-only sections. File builds use the
-	// build-tagged defaults; embedded commercial builds return nil and remain fail-closed.
+	// account 段可选；缺失时使用内置默认管理员，首次启动自动创建。
 	define.AccountConfig, err = config.GetSection(`account`)
 	if err != nil {
-		define.AccountConfig = defaultAccountSection()
-		if define.AccountConfig == nil {
-			logs.Error(`read config account section error: %s`, err.Error())
-			panic(`read config account error`)
+		define.AccountConfig = map[string]string{
+			`admin_username`: `admin`,
+			`admin_password`: `admin123456`,
+			`admin_name`:     `Admin`,
 		}
 		logs.Info(`config account section missing; using development defaults`)
 	}
-	applyDeploymentEnv(`account`, define.AccountConfig)
 
+	// license 段可选；缺失时使用内置默认授权配置。
 	define.LicenseConfig, err = config.GetSection(`license`)
 	if err != nil {
-		define.LicenseConfig = defaultLicenseSection()
-		if define.LicenseConfig == nil {
-			logs.Error(`read config license section error: %s`, err.Error())
-			panic(`read config license error`)
+		define.LicenseConfig = map[string]string{
+			`activation_url`:           ``,
+			`request_timeout_seconds`:  `10`,
+			`refresh_interval_seconds`: `21600`,
+			`contact_qr_url`:           `/assets/customer-service-qr.png`,
+			`instance_id_file`:         `data/license/instance_id`,
 		}
 		logs.Info(`config license section missing; using development defaults`)
 	}
-	applyDeploymentEnv(`license`, define.LicenseConfig)
 }

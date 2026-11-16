@@ -8,6 +8,7 @@ import (
 	"errors"
 	"html"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -74,16 +75,49 @@ func ResolvePublicIssueInvite(inviteKey string) (define.IssueInviteConfigModel, 
 	return config, nil
 }
 
-// GetPublicIssueInvite returns enabled template summaries for a general invitation link.
-func GetPublicIssueInvite(inviteKey, openID string) (define.IssueInviteConfigModel, []define.IssueInviteTemplateModel, error) {
-	if err := validate.IssueInviteOpenID(openID); err != nil {
+// PublicIssueInviteModel 指定通用邀填链接和可选的小客服模板列表筛选条件。
+type PublicIssueInviteModel struct {
+	InviteKey  string
+	OpenID     string
+	XkfStaffID *int64
+}
+
+// GetPublicIssueInvite 返回通用邀填配置和已启用的模板。
+func GetPublicIssueInvite(model PublicIssueInviteModel) (define.IssueInviteConfigModel, []define.IssueInviteTemplateModel, error) {
+	if err := validate.IssueInviteOpenID(model.OpenID); err != nil {
 		return define.IssueInviteConfigModel{}, nil, ErrIssueInviteInvalid
 	}
-	scope, err := ResolvePublicIssueInvite(inviteKey)
+	scope, err := ResolvePublicIssueInvite(model.InviteKey)
 	if err != nil {
 		return define.IssueInviteConfigModel{}, nil, err
 	}
-	return GetCachedIssueInviteConfig(scope)
+	if model.XkfStaffID == nil {
+		return GetCachedIssueInviteConfig(scope)
+	}
+	if *model.XkfStaffID <= 0 {
+		return scope, nil, nil
+	}
+	member, found, err := GetXkfMemberByStaffId(*model.XkfStaffID)
+	if err != nil {
+		return scope, nil, err
+	}
+	if !found || member.AdminId != scope.AdminID || member.GoteamsUserId <= 0 {
+		return scope, nil, nil
+	}
+	roleID, err := TemplateViewerRole(scope.AdminID, scope.WorkspaceID, member.GoteamsUserId)
+	if err != nil || roleID <= 0 {
+		return scope, nil, err
+	}
+	// 按当前工作空间角色筛选，客服列表不写入通用邀请缓存。
+	templates, err := ListIssueInviteTemplates(ListIssueInviteTemplatesModel{
+		AdminID: scope.AdminID, WorkspaceID: scope.WorkspaceID, EnabledOnly: true,
+	})
+	if err != nil {
+		return scope, nil, err
+	}
+	return scope, slices.DeleteFunc(templates, func(template define.IssueInviteTemplateModel) bool {
+		return !TemplateVisibleToRole(template.VisibleRoleIDs, roleID)
+	}), nil
 }
 
 // GetPublicIssueTemplate returns one enabled copied template for a template link.
@@ -763,7 +797,12 @@ func SubmitPublicIssue(model define.IssueInviteSubmitModel) (define.IssueInviteR
 	if descriptionMode == `` {
 		descriptionMode = define.DescriptionModeRichText
 	}
+	severityId, err := resolveSeverityId(tx, scope.AdminID, scope.WorkspaceID, template.TypeKey, nil)
+	if err != nil {
+		return define.IssueInviteRequirementModel{}, err
+	}
 	record := map[string]any{
+		`severity_id`:        severityId,
 		`admin_id`:           scope.AdminID,
 		`workspace_id`:       scope.WorkspaceID,
 		`parent_id`:          0,

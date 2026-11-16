@@ -27,6 +27,14 @@
         v-else-if="sub === 'priority' && canPriority"
         :ws-id="wsId"
         :type-key="typeKey"
+        key="priority"
+      />
+      <PriorityTab
+        v-else-if="sub === 'severity' && canSeverity"
+        key="severity"
+        :ws-id="wsId"
+        :type-key="typeKey"
+        severity
       />
       <TemplateTab
         v-else-if="sub === 'template' && canTemplate"
@@ -63,7 +71,9 @@ const templateEditing = ref(false);
 const canAttribute = computed(() => {
   // Planning has no attribute tab; the work item attribute config covers requirement/defect only.
   if (props.typeKey === "planning") return false;
-  return authStore.hasPermission(typeSettingPermission(props.typeKey, "attribute"));
+  return authStore.hasPermission(
+    typeSettingPermission(props.typeKey, "attribute"),
+  );
 });
 const canField = computed(() =>
   authStore.hasPermission(typeSettingPermission(props.typeKey, "field")),
@@ -74,6 +84,9 @@ const canStatus = computed(() =>
 const canPriority = computed(() =>
   authStore.hasPermission(typeSettingPermission(props.typeKey, "priority")),
 );
+const canSeverity = computed(
+  () => props.typeKey === "defect" && canPriority.value,
+);
 const canTemplate = computed(
   () => props.typeKey !== "planning" && canField.value,
 );
@@ -83,6 +96,7 @@ const visibleTabs = computed(() =>
     canField.value && "fields",
     canStatus.value && "status",
     canPriority.value && "priority",
+    canSeverity.value && "severity",
     canTemplate.value && "template",
   ].filter(Boolean),
 );
@@ -98,6 +112,7 @@ const subOptions = computed(() =>
     },
     canStatus.value && { value: "status", label: $t("settings_status") },
     canPriority.value && { value: "priority", label: $t("settings_priority") },
+    canSeverity.value && { value: "severity", label: $t("workspace_severity") },
     canTemplate.value && { value: "template", label: $t("settings_template") },
   ].filter(Boolean),
 );
@@ -105,7 +120,7 @@ const subOptions = computed(() =>
 // `?tab=` deep links select a sub tab (e.g. the invite settings' "添加模板"
 // jump); appliedTab guards so manual tab switches are not overwritten while the
 // query param still points at the previous tab.
-let appliedTab = '';
+let appliedTab = "";
 watchEffect(() => {
   const queryTab = typeof route.query.tab === "string" ? route.query.tab : "";
   if (queryTab && queryTab !== appliedTab) {

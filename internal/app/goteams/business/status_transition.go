@@ -180,11 +180,21 @@ func parseStatusTransitionCustomFieldID(key string) (int, bool) {
 	return id, true
 }
 
-func statusTransitionFormByType(model WorkspaceSettingsModel, typeKey string) StatusTransitionFormModel {
+func loadStatusTransitionForm(tx *sql.Tx, adminId int, workspaceId, typeKey string) (StatusTransitionFormModel, error) {
+	column := "requirement_status_transition"
 	if typeKey == define.TypeKeyDefect {
-		return model.DefectStatusTransition
+		column = "defect_status_transition"
 	}
-	return model.RequirementStatusTransition
+	query := "SELECT " + column + " FROM " + define.TableWorkspaceSettings + " WHERE admin_id=$1 AND workspace_id=$2"
+	rows, err := msql.RawValues(define.Postgres, query, tx, adminId, workspaceId)
+	if err != nil {
+		logs.Error("sql:%s, err:%s", query, err.Error())
+		return StatusTransitionFormModel{}, err
+	}
+	if len(rows) == 0 {
+		return defaultStatusTransitionForm(), nil
+	}
+	return parseStatusTransitionForm(rows[0][column]), nil
 }
 
 // filterUnavailableStatusTransitionFields drops disabled built-in fields and unavailable custom fields from a saved form.
@@ -252,6 +262,7 @@ type statusTransitionWorkItemModel struct {
 
 // TransitionWorkItemStatusModel describes applying an advanced status transition.
 type TransitionWorkItemStatusModel struct {
+	StatusAction     *WorkItemStatusActionModel
 	AdminId          int
 	UserId           int
 	WorkspaceId      string
@@ -301,11 +312,31 @@ func TransitionWorkItemStatus(model TransitionWorkItemStatusModel) error {
 	if !HasPermission(model.AdminId, model.UserId, model.WorkspaceId, StatusTransitionEditPermission(item.TypeKey)) {
 		return ErrStatusTransitionForbidden
 	}
-	settings, err := GetWorkspaceSettings(WorkspaceSettingsModel{AdminId: model.AdminId, WsId: model.WorkspaceId})
+	comment := strings.TrimSpace(model.Comment)
+	commentID := 0
+	tx, err := msql.Begin(define.Postgres)
+	if err != nil {
+		logs.Error("begin status transition transaction failed, err:%s", err.Error())
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if model.StatusAction != nil {
+		workspaceType, err := lockStatusActionWorkspace(tx, model.AdminId, cast.ToInt(model.WorkspaceId), false)
+		if err != nil {
+			return err
+		}
+		if workspaceType != define.WorkspaceTypeIssue || item.TypeKey != define.TypeKeyRequirement {
+			return ErrStatusActionWorkspace
+		}
+		// SLA 设置锁必须在工单行锁之前取得，沿用普通工单更新的锁顺序。
+		if _, err := prepareSLAMutationTx(tx, model.AdminId, cast.ToInt(model.WorkspaceId)); err != nil {
+			return err
+		}
+	}
+	form, err := loadStatusTransitionForm(tx, model.AdminId, model.WorkspaceId, item.TypeKey)
 	if err != nil {
 		return err
 	}
-	form := statusTransitionFormByType(settings, item.TypeKey)
 	form, err = filterUnavailableStatusTransitionFields(model.AdminId, model.WorkspaceId, item.TypeKey, form)
 	if err != nil {
 		return err
@@ -325,20 +356,17 @@ func TransitionWorkItemStatus(model TransitionWorkItemStatusModel) error {
 		}
 	}
 
-	comment := strings.TrimSpace(model.Comment)
-	commentID := 0
-	tx, err := msql.Begin(define.Postgres)
-	if err != nil {
-		logs.Error("begin status transition transaction failed, err:%s", err.Error())
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
 	lockedData, err := getRequirementById(tx, model.AdminId, model.WorkspaceId, cast.ToString(model.WorkItemId))
 	if err != nil {
 		return err
 	}
 	if len(lockedData) == 0 {
 		return ErrRequirementNotFound
+	}
+	if model.StatusAction != nil {
+		if err := checkWorkItemStatusAction(tx, model, lockedData); err != nil {
+			return err
+		}
 	}
 	beforeSnapshot, err := captureAutomationSnapshot(tx, model.AdminId, cast.ToInt(model.WorkspaceId), model.WorkItemId)
 	if err != nil {

@@ -129,3 +129,13 @@ export function statusTransitionFieldLabel(key, t, customFields = []) {
   }
   return key;
 }
+
+export function statusActionPayload(action) {
+  return {
+    status_id: Number(action.target_status_id),
+    status_action: {
+      mapping_id: Number(action.id),
+      source_status_id: Number(action.source_status_id),
+    },
+  };
+}

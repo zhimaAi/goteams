@@ -5,7 +5,6 @@ package controller
 import (
 	"errors"
 	"net/http"
-	"net/url"
 
 	"goteams/internal/app/goteams/business"
 	"goteams/internal/app/goteams/define"
@@ -16,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cast"
 	"github.com/zhimaAi/go_tools/logs"
-	"github.com/zhimaAi/go_tools/tool"
 )
 
 // ======================== Workspace CRUD ========================
@@ -345,43 +343,6 @@ func GetWorkspaceTemplateIcon(c *gin.Context) {
 	}
 	c.Header(`Cache-Control`, `no-store`)
 	c.Data(http.StatusOK, contentType, data)
-}
-
-// ExportWorkspaceTemplates packages every copyable configuration of the template account as a
-// downloadable tar.gz. The caller carries a signed short-lived `?token=` instead of a session:
-// both consumers (a browser address bar and a headless curl) can attach a query string but not the
-// Authorization header. Anyone holding a valid token may download, and a deployment without a
-// template account answers 403 as well.
-func ExportWorkspaceTemplates(c *gin.Context) {
-	lang := lib_i18n.GetLang(c)
-
-	templateAdminId := business.GetTemplateAdminId()
-	// Forbidden means forbidden: the status alone, no message body. The package carries the whole
-	// template account, so the caller is told nothing beyond "denied".
-	if templateAdminId == 0 || !business.VerifyTemplateExportToken(c.Query(`token`), tool.Time2Int()) {
-		c.AbortWithStatus(http.StatusForbidden)
-		return
-	}
-
-	result, err := business.ExportTemplatePackage(business.ExportTemplatePackageModel{AdminID: templateAdminId})
-	if err != nil {
-		switch {
-		case errors.Is(err, business.ErrTemplateExportForbidden):
-			c.AbortWithStatus(http.StatusForbidden)
-		case errors.Is(err, business.ErrTemplatePackageTooLarge):
-			abortInternal(c, lib_i18n.Show(lang, define.MsgTemplatePackageTooLarge), `workspace.templates.export.too_large`, err)
-		default:
-			abortInternal(c, lib_i18n.Show(lang, define.MsgError), `workspace.templates.export`, err)
-		}
-		return
-	}
-
-	// Headers before any body byte; the fixed name lets an operator drop the file straight onto
-	// the package path, and no-store keeps a proxy from serving an older package.
-	c.Header(`Content-Disposition`, `attachment; filename*=UTF-8''`+url.PathEscape(result.Filename))
-	c.Header(`Cache-Control`, `no-store`)
-	c.Header(`X-Content-Type-Options`, `nosniff`)
-	c.Data(http.StatusOK, `application/gzip`, result.Data)
 }
 
 // ======================== Enterprise Project Management ========================

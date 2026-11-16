@@ -40,6 +40,7 @@
           type="button"
           class="status-option"
           :class="{ active: Number(selectedStatusId) === Number(item.id) }"
+          :disabled="!!statusAction"
           @click="selectedStatusId = Number(item.id)"
         >
           <span class="status-name">{{ displayStatusName(item.name) }}</span>
@@ -53,7 +54,7 @@
       <section class="field-pane">
         <div class="field-scroll">
           <div
-            v-for="field in form.fields"
+            v-for="field in fields"
             :key="field.key"
             class="field-row"
             :class="{
@@ -168,9 +169,13 @@
           </div>
         </div>
         <div class="footer">
-          <a-button type="primary" :loading="submitting" @click="confirm">{{
-            $t("common_confirm")
-          }}</a-button>
+          <a-button
+            type="primary"
+            :disabled="!selectedStatusId"
+            :loading="submitting"
+            @click="confirm"
+            >{{ $t("common_confirm") }}</a-button
+          >
           <a-button @click="close">{{ $t("common_cancel") }}</a-button>
         </div>
       </section>
@@ -191,10 +196,12 @@ const props = defineProps({
   wsId: { type: [String, Number], default: "" },
   workItem: { type: Object, default: () => null },
   metadata: { type: Object, default: () => null },
+  statusAction: { type: Object, default: null },
 });
 const emit = defineEmits({
   "update:open": (value) => typeof value === "boolean",
   success: (payload) => !!payload,
+  stale: () => true,
 });
 const { t: $t } = useI18n();
 const { token } = theme.useToken();
@@ -202,7 +209,7 @@ const {
   loading,
   submitting,
   selectedStatusId,
-  form,
+  fields,
   draft,
   members,
   memberOptions,

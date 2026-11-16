@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -20,6 +21,7 @@ import (
 )
 
 type issueInviteTemplateCreateRequest struct {
+	VisibleRoleIDs   []int  `json:"visible_role_ids"`
 	TypeKey          string `json:"type_key"`
 	Name             string `json:"name"`
 	DescriptionMode  string `json:"description_mode"`
@@ -38,6 +40,7 @@ type issueInviteOrderRequest struct {
 }
 
 type issueInviteTemplateUpdateRequest struct {
+	VisibleRoleIDs   []int  `json:"visible_role_ids"`
 	Name             string `json:"name"`
 	DescriptionMode  string `json:"description_mode"`
 	FieldsJSON       string `json:"fields_json"`
@@ -70,6 +73,7 @@ type issueInviteRequirementActionRequest struct {
 }
 
 type issueInviteTemplateResponse struct {
+	VisibleRoleIDs   *[]int `json:"visible_role_ids,omitempty"`
 	ID               int    `json:"id,omitempty"`
 	TemplateKey      string `json:"template_key,omitempty"`
 	TypeKey          string `json:"type_key"`
@@ -204,6 +208,24 @@ func toIssueInviteManageResponse(lang string, t define.IssueInviteTemplateModel)
 	return item
 }
 
+func issueInviteTemplateCopyRole(c *gin.Context, adminID, workspaceID int) (bool, int, error) {
+	userID := c.GetInt(`userId`)
+	if !business.HasPermission(adminID, userID, cast.ToString(workspaceID), define.PermissionTicketCopyLink) {
+		return false, 0, nil
+	}
+	roleID, err := business.TemplateViewerRole(adminID, workspaceID, userID)
+	return true, roleID, err
+}
+
+func issueInviteTemplateManagementItem(lang string, template define.IssueInviteTemplateModel, canCopy bool, roleID int) issueInviteTemplateResponse {
+	item := toIssueInviteManageResponse(lang, template)
+	item.VisibleRoleIDs = &template.VisibleRoleIDs
+	if !canCopy || !business.TemplateVisibleToRole(template.VisibleRoleIDs, roleID) {
+		item.TemplateKey = ``
+	}
+	return item
+}
+
 // issueInviteTemplateResponseList maps a template list to response items.
 func issueInviteTemplateResponseList(lang string, items []define.IssueInviteTemplateModel) []issueInviteTemplateResponse {
 	result := make([]issueInviteTemplateResponse, 0, len(items))
@@ -236,6 +258,8 @@ func toIssueInviteConfigResponse(config define.IssueInviteConfigModel) issueInvi
 // abortIssueInviteError maps issue-invitation errors to a controlled HTTP response.
 func abortIssueInviteError(c *gin.Context, lang, stage string, err error) {
 	switch {
+	case errors.Is(err, business.ErrTemplateVisibleRolesInvalid):
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), stage, err)
 	case errors.Is(err, business.ErrIssueInviteInvalid):
 		abortNotFound(c, lib_i18n.Show(lang, define.MsgIssueInviteInvalid))
 	case errors.Is(err, business.ErrIssueInviteTemplateNotFound):
@@ -307,7 +331,10 @@ func GetIssueInviteShare(c *gin.Context) {
 		return
 	}
 	// Config-level enabled state; guide fields are returned as-is.
-	templates, err := business.ListIssueInviteTemplates(adminID, workspaceID, false)
+	viewerID := c.GetInt(`userId`)
+	templates, err := business.ListIssueInviteTemplates(business.ListIssueInviteTemplatesModel{
+		AdminID: adminID, WorkspaceID: workspaceID, ViewerID: &viewerID,
+	})
 	if err != nil {
 		abortIssueInviteError(c, lang, `issue_invite.share.templates`, err)
 		return
@@ -342,14 +369,28 @@ func ListIssueInviteTemplates(c *gin.Context) {
 		abortIssueInviteError(c, lang, `issue_invite.templates`, business.ErrIssueInviteAppDisabled)
 		return
 	}
-	canCopy := business.HasPermission(adminID, cast.ToInt(c.GetInt(`userId`)), cast.ToString(workspaceID), define.PermissionTicketCopyLink)
-	templates, err := business.ListIssueInviteTemplates(adminID, workspaceID, false)
+	manage := c.Query(`manage`) == `1`
+	viewerID := c.GetInt(`userId`)
+	model := business.ListIssueInviteTemplatesModel{AdminID: adminID, WorkspaceID: workspaceID}
+	if !manage {
+		model.ViewerID = &viewerID
+	}
+	templates, err := business.ListIssueInviteTemplates(model)
 	if err != nil {
 		abortIssueInviteError(c, lang, `issue_invite.templates.list`, err)
 		return
 	}
 	items := issueInviteManageResponseList(lang, templates)
-	if !canCopy {
+	if manage {
+		canCopy, roleID, err := issueInviteTemplateCopyRole(c, adminID, workspaceID)
+		if err != nil {
+			abortIssueInviteError(c, lang, `issue_invite.templates.role`, err)
+			return
+		}
+		for i, template := range templates {
+			items[i] = issueInviteTemplateManagementItem(lang, template, canCopy, roleID)
+		}
+	} else if !business.HasPermission(adminID, viewerID, cast.ToString(workspaceID), define.PermissionTicketCopyLink) {
 		for i := range items {
 			items[i].TemplateKey = ``
 		}
@@ -388,6 +429,7 @@ func CreateIssueInviteTemplate(c *gin.Context) {
 		RecallEnabled:    req.RecallEnabled,
 		RecallStatusID:   req.RecallStatusID,
 		OperatorID:       cast.ToInt(c.GetInt(`userId`)),
+		VisibleRoleIDs:   req.VisibleRoleIDs,
 	}
 	if err := validate.IssueInviteTemplateCreate(model); err != nil {
 		msgKey := define.MsgWorkItemTemplateNameInvalid
@@ -404,6 +446,11 @@ func CreateIssueInviteTemplate(c *gin.Context) {
 		abortBadRequest(c, lib_i18n.Show(lang, msgKey), `issue_invite.template.create.validate`, err)
 		return
 	}
+	canCopy, roleID, roleErr := issueInviteTemplateCopyRole(c, adminID, workspaceID)
+	if roleErr != nil {
+		abortIssueInviteError(c, lang, `issue_invite.template.role`, roleErr)
+		return
+	}
 	template, err := business.CreateIssueInviteTemplate(model)
 	if err != nil {
 		abortIssueInviteError(c, lang, `issue_invite.template.create`, err)
@@ -412,7 +459,7 @@ func CreateIssueInviteTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, define.Response{
 		Code:    define.CodeSuccess,
 		Message: lib_i18n.Show(lang, define.MsgSuccess),
-		Data:    toIssueInviteManageResponse(lang, template),
+		Data:    issueInviteTemplateManagementItem(lang, template, canCopy, roleID),
 	})
 }
 
@@ -453,6 +500,11 @@ func GetIssueInviteTemplate(c *gin.Context) {
 		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `issue_invite.template.id`, err)
 		return
 	}
+	canCopy, roleID, roleErr := issueInviteTemplateCopyRole(c, adminID, workspaceID)
+	if roleErr != nil {
+		abortIssueInviteError(c, lang, `issue_invite.template.role`, roleErr)
+		return
+	}
 	template, err := business.GetIssueInviteTemplate(adminID, workspaceID, templateID)
 	if err != nil {
 		abortIssueInviteError(c, lang, `issue_invite.template.get`, err)
@@ -461,7 +513,7 @@ func GetIssueInviteTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, define.Response{
 		Code:    define.CodeSuccess,
 		Message: lib_i18n.Show(lang, define.MsgSuccess),
-		Data:    toIssueInviteManageResponse(lang, template),
+		Data:    issueInviteTemplateManagementItem(lang, template, canCopy, roleID),
 	})
 }
 
@@ -497,6 +549,7 @@ func UpdateIssueInviteTemplate(c *gin.Context) {
 		RecallEnabled:    req.RecallEnabled,
 		RecallStatusID:   req.RecallStatusID,
 		OperatorID:       cast.ToInt(c.GetInt(`userId`)),
+		VisibleRoleIDs:   req.VisibleRoleIDs,
 	}
 	if err := validate.IssueInviteTemplateUpdate(model); err != nil {
 		// The schema/enabled errors are distinct from the name/title/mode text checks.
@@ -514,6 +567,11 @@ func UpdateIssueInviteTemplate(c *gin.Context) {
 		abortBadRequest(c, lib_i18n.Show(lang, msgKey), `issue_invite.template.validate`, err)
 		return
 	}
+	canCopy, roleID, roleErr := issueInviteTemplateCopyRole(c, adminID, workspaceID)
+	if roleErr != nil {
+		abortIssueInviteError(c, lang, `issue_invite.template.role`, roleErr)
+		return
+	}
 	template, err := business.UpdateIssueInviteTemplate(model)
 	if err != nil {
 		abortIssueInviteError(c, lang, `issue_invite.template.update`, err)
@@ -522,7 +580,7 @@ func UpdateIssueInviteTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, define.Response{
 		Code:    define.CodeSuccess,
 		Message: lib_i18n.Show(lang, define.MsgSuccess),
-		Data:    toIssueInviteManageResponse(lang, template),
+		Data:    issueInviteTemplateManagementItem(lang, template, canCopy, roleID),
 	})
 }
 
@@ -641,16 +699,34 @@ func UploadIssueInviteThemeImage(c *gin.Context) {
 	})
 }
 
-// GetPublicIssueInvite returns a public general-link configuration.
+type publicIssueInviteQuery struct {
+	OpenID     string  `form:"openid"`
+	XkfStaffID *string `form:"xkf_staff_id"`
+}
+
+// GetPublicIssueInvite 返回通用邀填配置和模板列表。
 func GetPublicIssueInvite(c *gin.Context) {
 	lang := lib_i18n.GetLang(c)
 	inviteKey := c.Param(`inviteKey`)
-	openID := c.Query(`openid`)
-	if err := validate.IssueInviteOpenID(openID); err != nil {
+	var query publicIssueInviteQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `issue_invite.public.query`, err)
+		return
+	}
+	if err := validate.IssueInviteOpenID(query.OpenID); err != nil {
 		abortBadRequest(c, lib_i18n.Show(lang, define.MsgIssueInviteOpenIDInvalid), `issue_invite.public.openid`, err)
 		return
 	}
-	config, templates, err := business.GetPublicIssueInvite(inviteKey, openID)
+	model := business.PublicIssueInviteModel{InviteKey: inviteKey, OpenID: query.OpenID}
+	if query.XkfStaffID != nil {
+		c.Header(`Cache-Control`, `no-store`)
+		staffID, err := strconv.ParseInt(*query.XkfStaffID, 10, 64)
+		if err != nil {
+			staffID = 0
+		}
+		model.XkfStaffID = &staffID
+	}
+	config, templates, err := business.GetPublicIssueInvite(model)
 	if err != nil {
 		abortIssueInviteError(c, lang, `issue_invite.public.config`, err)
 		return

@@ -7,7 +7,9 @@
         canEdit && !descriptionEditing && commentInputFocused,
     }"
   >
-    <h4>{{ $t("requirement_commented") }} ({{ comments.length }})</h4>
+    <h4 v-if="!inviteFiller">
+      {{ $t("requirement_commented") }} ({{ comments.length }})
+    </h4>
     <a-tabs v-if="inviteFiller" v-model:active-key="commentTab" size="small">
       <a-tab-pane
         key="internal"
@@ -244,7 +246,13 @@
         :ws-id="wsId"
         :expanded="commentInputFocused"
         :min-height="commentInputFocused ? 108 : 30"
-        :placeholder="$t('requirement_addCommentPlaceholder')"
+        :placeholder="
+          $t(
+            inviteFiller
+              ? 'requirement_addReplyPlaceholder'
+              : 'requirement_addCommentPlaceholder',
+          )
+        "
         :mention-enabled="true"
         :mention-members="mentionCandidates"
         @focus-change="commentInputFocused = $event"
@@ -920,6 +928,9 @@ async function openAttachment(file) {
   color: #262626;
   font-size: 14px;
   font-weight: 600;
+}
+.comment-section > :deep(.ant-tabs-top > .ant-tabs-nav::before) {
+  border-bottom: 0;
 }
 .comment-item {
   display: flex;

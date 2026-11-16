@@ -31,7 +31,6 @@ type ConfigStruct struct {
 	OpenApi           map[string]string
 	Email             map[string]string
 	Client            map[string]string
-	Template          map[string]string
 	// Oauth holds the shared config of third-party scan-code login (site URL, state/ticket TTL).
 	Oauth map[string]string
 	// Dingtalk holds the DingTalk self-built app credentials used by scan-code login.
@@ -74,6 +73,7 @@ const (
 	TableUserTeamWorkSettings   = `user_team_work_member_settings`
 	TableUserContactPreferences = `user_contact_preferences`
 	TableWorkItemStatuses       = `workspace_statuses`
+	TableWorkspaceSeverities    = `workspace_severities`
 	TableWorkItemPriorities     = `workspace_priorities`
 	TableWorkItemFieldConfigs   = `workspace_field_configs`
 	TableCustomFields           = `workspace_custom_fields`
@@ -367,6 +367,9 @@ const (
 	MsgFeatureDisabled              = "common_feature_disabled"
 	MsgStatusNotFound               = "workitem_status_not_found"
 	MsgPriorityNotFound             = "workitem_priority_not_found"
+	MsgSeverityNotFound             = "workitem_severity_not_found"
+	MsgWorkflowOptionOrderChanged   = "workitem_option_order_changed"
+	MsgBuiltinWorkflowItemDelete    = "workitem_builtin_delete_disabled"
 	MsgStatusTransitionInvalid      = "workitem_status_transition_invalid"
 	MsgCustomFieldRequired          = "workitem_custom_field_required"
 	MsgCustomFieldUnknown           = "workitem_custom_field_unknown"

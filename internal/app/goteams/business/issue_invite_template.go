@@ -4,12 +4,15 @@ package business
 
 import (
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"goteams/internal/app/goteams/define"
 	"goteams/internal/app/goteams/validate"
 	"goteams/internal/pkg/lib_i18n"
 
+	"github.com/lib/pq"
 	"github.com/spf13/cast"
 	"github.com/zhimaAi/go_tools/logs"
 	"github.com/zhimaAi/go_tools/msql"
@@ -22,6 +25,7 @@ const issueInviteTemplateFields = `t.id, t.type_key, t.name, t.description_mode,
 
 // issueInviteTemplateRow is the row shape shared by invitation-template queries.
 type issueInviteTemplateRow struct {
+	VisibleRoleIDs   []int
 	ID               int
 	InviteKey        string
 	TypeKey          string
@@ -60,8 +64,15 @@ func toIssueInviteTemplateRow(row msql.Params) (issueInviteTemplateRow, error) {
 	if raw, ok := row[`guide_enabled`]; ok {
 		guideEnabled = cast.ToInt(raw)
 	}
+	var visibleRoleIDs []int
+	if raw, ok := row[`visible_role_ids`]; ok {
+		if err := json.Unmarshal([]byte(raw), &visibleRoleIDs); err != nil {
+			return issueInviteTemplateRow{}, fmt.Errorf("decode invitation template visible roles: %w", err)
+		}
+	}
 	return issueInviteTemplateRow{
-		ID: id, InviteKey: row[`invite_key`], TypeKey: row[`type_key`], Name: row[`name`],
+		VisibleRoleIDs: visibleRoleIDs,
+		ID:             id, InviteKey: row[`invite_key`], TypeKey: row[`type_key`], Name: row[`name`],
 		DescriptionMode: row[`description_mode`], FieldsJSON: row[`fields_json`],
 		ThemeImage: row[`theme_image`], GuideTitle: row[`guide_title`],
 		GuideDescription: row[`guide_description`],
@@ -76,7 +87,7 @@ func toIssueInviteTemplateRow(row msql.Params) (issueInviteTemplateRow, error) {
 // rowToIssueInviteTemplateModel converts one row into the public model.
 func rowToIssueInviteTemplateModel(row issueInviteTemplateRow, adminID, workspaceID int) define.IssueInviteTemplateModel {
 	return define.IssueInviteTemplateModel{
-		ID: row.ID, AdminID: adminID, WorkspaceID: workspaceID,
+		ID: row.ID, AdminID: adminID, WorkspaceID: workspaceID, VisibleRoleIDs: row.VisibleRoleIDs,
 		InviteKey: row.InviteKey, TypeKey: row.TypeKey, Name: row.Name,
 		DescriptionMode: row.DescriptionMode, FieldsJSON: row.FieldsJSON,
 		ThemeImage: row.ThemeImage, GuideTitle: row.GuideTitle, GuideDescription: row.GuideDescription,
@@ -361,15 +372,23 @@ func isIssueInviteLinkParamChar(char rune) bool {
 	return false
 }
 
-// ListIssueInviteTemplates returns invitation templates in configured order.
-func ListIssueInviteTemplates(adminID, workspaceID int, enabledOnly bool) ([]define.IssueInviteTemplateModel, error) {
-	query := `SELECT ` + issueInviteTemplateFields + `, a.enabled, a.sort_order
+// ListIssueInviteTemplatesModel 指定邀请模板列表的工作空间和可选的登录查看者。
+type ListIssueInviteTemplatesModel struct {
+	AdminID     int
+	WorkspaceID int
+	ViewerID    *int
+	EnabledOnly bool
+}
+
+// ListIssueInviteTemplates 返回按配置排序的邀请模板。
+func ListIssueInviteTemplates(model ListIssueInviteTemplatesModel) ([]define.IssueInviteTemplateModel, error) {
+	query := `SELECT ` + issueInviteTemplateFields + `, a.enabled, a.sort_order, array_to_json(a.visible_role_ids)::text AS visible_role_ids
 		FROM ` + define.TableWorkspaceIssueItemTemplates + ` a
 		JOIN ` + define.TableWorkItemTemplates + ` t
 			ON t.admin_id = a.admin_id AND t.id = a.template_id
 		WHERE a.admin_id = $1 AND a.workspace_id = $2`
-	args := []any{adminID, workspaceID}
-	if enabledOnly {
+	args := []any{model.AdminID, model.WorkspaceID}
+	if model.EnabledOnly {
 		query += ` AND a.enabled = 1`
 	}
 	query += ` ORDER BY a.sort_order ASC, a.id ASC`
@@ -378,20 +397,29 @@ func ListIssueInviteTemplates(adminID, workspaceID int, enabledOnly bool) ([]def
 		logs.Error("list issue invite templates failed, err:%s", err.Error())
 		return nil, err
 	}
+	roleID := 0
+	if model.ViewerID != nil {
+		roleID, err = TemplateViewerRole(model.AdminID, model.WorkspaceID, *model.ViewerID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	items := make([]define.IssueInviteTemplateModel, 0, len(rows))
 	for _, row := range rows {
 		converted, convErr := toIssueInviteTemplateRow(row)
 		if convErr != nil {
 			return nil, convErr
 		}
-		items = append(items, rowToIssueInviteTemplateModel(converted, adminID, workspaceID))
+		if model.ViewerID == nil || TemplateVisibleToRole(converted.VisibleRoleIDs, roleID) {
+			items = append(items, rowToIssueInviteTemplateModel(converted, model.AdminID, model.WorkspaceID))
+		}
 	}
 	return items, nil
 }
 
 // getIssueInviteTemplateRow returns one template in the authenticated project scope.
 func getIssueInviteTemplateRow(adminID, workspaceID, templateID int) (issueInviteTemplateRow, error) {
-	rows, err := msql.RawValues(define.Postgres, `SELECT `+issueInviteTemplateFields+`, a.enabled, a.sort_order
+	rows, err := msql.RawValues(define.Postgres, `SELECT `+issueInviteTemplateFields+`, a.enabled, a.sort_order, array_to_json(a.visible_role_ids)::text AS visible_role_ids
 		FROM `+define.TableWorkspaceIssueItemTemplates+` a
 		JOIN `+define.TableWorkItemTemplates+` t
 			ON t.admin_id = a.admin_id AND t.id = a.template_id
@@ -408,6 +436,7 @@ func getIssueInviteTemplateRow(adminID, workspaceID, templateID int) (issueInvit
 
 // issueInviteTemplateInsertModel carries one invitation-template insert inside a transaction.
 type issueInviteTemplateInsertModel struct {
+	VisibleRoleIDs   []int
 	Tx               *sql.Tx
 	AdminID          int
 	WorkspaceID      int
@@ -452,11 +481,11 @@ func insertIssueInviteTemplateTx(p issueInviteTemplateInsertModel) (int, error) 
 		templateID := cast.ToInt(inserted[0][`id`])
 		if _, assocErr := msql.RawExec(define.Postgres, `INSERT INTO `+define.TableWorkspaceIssueItemTemplates+`
 			(admin_id, workspace_id, template_id, enabled, sort_order, theme_image, guide_title, guide_description,
-				guide_enabled, recall_enabled, recall_status_id, created_by, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)`, p.Tx,
+				guide_enabled, recall_enabled, recall_status_id, created_by, created_at, updated_at, visible_role_ids)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, COALESCE($14::integer[], '{}'))`, p.Tx,
 			p.AdminID, p.WorkspaceID, templateID, p.Enabled, p.SortOrder,
 			p.ThemeImage, p.GuideTitle, p.GuideDescription, p.GuideEnabled,
-			p.RecallEnabled, p.RecallStatusID, p.OperatorID, p.Now); assocErr != nil {
+			p.RecallEnabled, p.RecallStatusID, p.OperatorID, p.Now, pq.Array(p.VisibleRoleIDs)); assocErr != nil {
 			logs.Error("insert issue invite template association failed, err:%s", assocErr.Error())
 			return 0, assocErr
 		}
@@ -487,6 +516,10 @@ func CreateIssueInviteTemplate(model define.IssueInviteTemplateCreateModel) (def
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	roleIDs, err := validatedTemplateVisibleRoles(tx, model.AdminID, model.WorkspaceID, model.VisibleRoleIDs)
+	if err != nil {
+		return define.IssueInviteTemplateModel{}, err
+	}
 	sortOrder, err := nextIssueInviteTemplateSort(tx, model.AdminID, model.WorkspaceID)
 	if err != nil {
 		return define.IssueInviteTemplateModel{}, err
@@ -498,7 +531,7 @@ func CreateIssueInviteTemplate(model define.IssueInviteTemplateCreateModel) (def
 		GuideDescription: model.GuideDescription, GuideEnabled: model.GuideEnabled,
 		Enabled: model.Enabled, SortOrder: sortOrder,
 		RecallEnabled: model.RecallEnabled, RecallStatusID: recallStatusID,
-		OperatorID: model.OperatorID, Now: now,
+		OperatorID: model.OperatorID, Now: now, VisibleRoleIDs: roleIDs,
 	})
 	if err != nil {
 		return define.IssueInviteTemplateModel{}, err
@@ -597,42 +630,57 @@ func UpdateIssueInviteTemplate(model define.IssueInviteTemplateUpdateModel) (def
 	if err != nil {
 		return define.IssueInviteTemplateModel{}, err
 	}
-	now := tool.Time2Int()
-	m := msql.Model(define.TableWorkItemTemplates, define.Postgres)
-	n, err := m.Where2([][]string{
-		{`admin_id`, cast.ToString(model.AdminID)},
-		{`id`, cast.ToString(model.TemplateID)},
-	}).Update(msql.Datas{
-		`name`:             model.Name,
-		`description_mode`: mode,
-		`fields_json`:      fieldsJSON,
-		`updated_at`:       now,
-	})
+	tx, err := msql.Begin(define.Postgres)
 	if err != nil {
-		logs.Error("update issue invite template failed, sql:%s, err:%s", m.GetLastSql(), err.Error())
+		return define.IssueInviteTemplateModel{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var roleIDs []int
+	if model.VisibleRoleIDs != nil {
+		roleIDs, err = validatedTemplateVisibleRoles(tx, model.AdminID, model.WorkspaceID, model.VisibleRoleIDs)
+		if err != nil {
+			return define.IssueInviteTemplateModel{}, err
+		}
+	}
+
+	now := tool.Time2Int()
+	query := `UPDATE ` + define.TableWorkspaceIssueItemTemplates + `
+		SET enabled = $4, theme_image = $5, guide_title = $6, guide_description = $7,
+			guide_enabled = $8, recall_enabled = $9, recall_status_id = $10, updated_at = $11,
+			visible_role_ids = COALESCE($12::integer[], visible_role_ids)
+		WHERE admin_id = $1 AND workspace_id = $2 AND template_id = $3`
+	result, err := msql.RawExec(define.Postgres, query, tx, model.AdminID, model.WorkspaceID, model.TemplateID,
+		model.Enabled, model.ThemeImage, model.GuideTitle, model.GuideDescription, model.GuideEnabled,
+		model.RecallEnabled, recallStatusID, now, pq.Array(roleIDs))
+	if err != nil {
+		logs.Error("update issue invite template association failed, sql:%s, err:%s", query, err.Error())
+		return define.IssueInviteTemplateModel{}, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
 		return define.IssueInviteTemplateModel{}, err
 	}
 	if n == 0 {
 		return define.IssueInviteTemplateModel{}, ErrIssueInviteTemplateNotFound
 	}
 
-	// The enabled toggle and template-level theme/guide fields live on the association row.
-	a := msql.Model(define.TableWorkspaceIssueItemTemplates, define.Postgres)
-	if _, err = a.Where2([][]string{
-		{`admin_id`, cast.ToString(model.AdminID)},
-		{`workspace_id`, cast.ToString(model.WorkspaceID)},
-		{`template_id`, cast.ToString(model.TemplateID)},
-	}).Update(msql.Datas{
-		`enabled`:           model.Enabled,
-		`theme_image`:       model.ThemeImage,
-		`guide_title`:       model.GuideTitle,
-		`guide_description`: model.GuideDescription,
-		`guide_enabled`:     model.GuideEnabled,
-		`recall_enabled`:    model.RecallEnabled,
-		`recall_status_id`:  recallStatusID,
-		`updated_at`:        now,
-	}); err != nil {
-		logs.Error("update issue invite template association failed, sql:%s, err:%s", a.GetLastSql(), err.Error())
+	query = `UPDATE ` + define.TableWorkItemTemplates + `
+		SET name = $3, description_mode = $4, fields_json = $5, updated_at = $6
+		WHERE admin_id = $1 AND id = $2`
+	result, err = msql.RawExec(define.Postgres, query, tx, model.AdminID, model.TemplateID,
+		model.Name, mode, fieldsJSON, now)
+	if err != nil {
+		logs.Error("update issue invite template failed, sql:%s, err:%s", query, err.Error())
+		return define.IssueInviteTemplateModel{}, err
+	}
+	n, err = result.RowsAffected()
+	if err != nil {
+		return define.IssueInviteTemplateModel{}, err
+	}
+	if n == 0 {
+		return define.IssueInviteTemplateModel{}, ErrIssueInviteTemplateNotFound
+	}
+	if err := tx.Commit(); err != nil {
 		return define.IssueInviteTemplateModel{}, err
 	}
 

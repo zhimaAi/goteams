@@ -53,6 +53,7 @@
         />
         <IssueTemplateDetail
           v-else-if="template"
+          :key="`${wsId}:${template.id}`"
           ref="detailRef"
           v-model:name="templateName"
           :template="template"
@@ -195,6 +196,8 @@ async function loadTemplate() {
   const seq = ++loadSeq;
   loading.value = true;
   editingName.value = false;
+  template.value = null;
+  inviteKey.value = "";
   try {
     const config = await getIssueInviteConfig(wsId.value);
     if (seq !== loadSeq) return;
@@ -239,9 +242,13 @@ async function goBack() {
 // Autosave is triggered by the detail component; update the local copy with the
 // server-normalized response so navigation away and back shows fresh data.
 async function saveTemplate(payload) {
-  if (!template.value) return;
-  const item = await store.saveTemplate(wsId.value, template.value.id, payload);
-  template.value = item;
+  const workspaceID = wsId.value;
+  const id = template.value?.id;
+  if (!id) return;
+  const item = await store.saveTemplate(workspaceID, id, payload);
+  if (wsId.value === workspaceID && template.value?.id === id) {
+    template.value = item;
+  }
   return item;
 }
 

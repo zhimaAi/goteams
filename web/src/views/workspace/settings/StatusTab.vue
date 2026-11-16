@@ -9,7 +9,13 @@
       <template #extra v-if="canManage">
         <a-space :size="4">
           <a-popconfirm
-            :title="$t('settings_resetConfirm')"
+            :title="
+              $t(
+                showStatusActions
+                  ? 'status_action_reset_statuses'
+                  : 'settings_resetConfirm',
+              )
+            "
             :ok-text="$t('common_confirm')"
             :cancel-text="$t('common_cancel')"
             @confirm="resetToDefault"
@@ -18,16 +24,23 @@
               type="default"
               size="small"
               :loading="resetLoading"
-              :disabled="saving"
+              :disabled="saving || optionMutationPending"
               >{{ $t("settings_restoreDefault") }}</a-button
             >
           </a-popconfirm>
-          <a-button type="primary" size="small" @click="openEditor(null)">
+          <a-button
+            type="primary"
+            size="small"
+            :disabled="optionMutationPending"
+            @click="openEditor(null)"
+          >
             <PlusOutlined /> {{ $t("settings_addStatus") }}
           </a-button>
         </a-space>
       </template>
       <a-table
+        ref="statusTable"
+        :aria-busy="ordering"
         :data-source="statuses"
         :columns="statusColumns"
         :pagination="false"
@@ -63,6 +76,12 @@
         </template>
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'name'">
+            <WorkflowOptionHandle
+              v-if="canReorder && statuses.length > 1"
+              :label="displayStatusName(record.name)"
+              :disabled="ordering || optionOrderDisabled"
+              @move="moveOption(record.id, $event)"
+            />
             <span
               class="enum-tag"
               :style="{ color: record.color, borderColor: record.color }"
@@ -114,16 +133,53 @@
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space v-if="canManage" :size="4">
-              <a-button type="text" size="small" @click="openEditor(record)">
+              <a-button
+                type="text"
+                size="small"
+                :disabled="optionMutationPending"
+                @click="openEditor(record)"
+              >
                 <EditOutlined />
               </a-button>
+              <a-tooltip
+                v-if="record.is_builtin"
+                :title="$t('settings_builtin_delete_disabled')"
+                :trigger="['hover', 'focus']"
+              >
+                <span
+                  tabindex="0"
+                  :aria-label="$t('settings_builtin_delete_disabled')"
+                  style="display: inline-block"
+                >
+                  <a-button
+                    type="text"
+                    size="small"
+                    disabled
+                    style="pointer-events: none"
+                  >
+                    <DeleteOutlined />
+                  </a-button>
+                </span>
+              </a-tooltip>
               <a-popconfirm
-                :title="$t('settings_delete_status_confirm')"
+                v-else
+                :title="
+                  $t(
+                    showStatusActions
+                      ? 'status_action_delete_status'
+                      : 'settings_delete_status_confirm',
+                  )
+                "
                 :ok-text="$t('common_confirm')"
                 :cancel-text="$t('common_cancel')"
                 @confirm="deleteItem(record)"
               >
-                <a-button type="text" size="small" danger>
+                <a-button
+                  type="text"
+                  size="small"
+                  danger
+                  :disabled="optionMutationPending"
+                >
                   <DeleteOutlined />
                 </a-button>
               </a-popconfirm>
@@ -132,6 +188,13 @@
         </template>
       </a-table>
     </a-card>
+
+    <StatusActionsCard
+      v-if="showStatusActions"
+      :ws-id="wsId"
+      :statuses="statuses"
+      :reload-key="transitionReloadKey"
+    />
 
     <AdvancedStatusTransitionCard
       v-if="typeKey !== 'planning'"
@@ -216,12 +279,17 @@ import {
   getWorkspaceSettings,
   updateWorkspaceSettings,
   resetStatuses,
+  reorderStatuses,
 } from "@/api/workspace";
 import { useAuthStore } from "@/stores/auth";
 import { typeSettingPermission } from "@/utils/typePermission";
 import { AGING_CONTROL_ANCHOR } from "@/constants/statusTransition";
 import AdvancedStatusTransitionCard from "./AdvancedStatusTransitionCard.vue";
+import { useWorkspaceApplications } from "@/composables/useWorkspaceApplications";
+import StatusActionsCard from "./StatusActionsCard.vue";
 import TimeControlCard from "./TimeControlCard.vue";
+import WorkflowOptionHandle from "./WorkflowOptionHandle.vue";
+import { useWorkflowOptionOrder } from "@/composables/useWorkflowOptionOrder";
 
 const props = defineProps({
   wsId: { type: [String, Number], default: "" },
@@ -231,6 +299,13 @@ const props = defineProps({
 const { t: $t } = useI18n();
 const route = useRoute();
 const authStore = useAuthStore();
+const { workspaceType } = useWorkspaceApplications(computed(() => props.wsId));
+const showStatusActions = computed(
+  () =>
+    props.typeKey === "requirement" &&
+    workspaceType.value === "issue" &&
+    canManage.value,
+);
 const agingAnchorRef = ref(null);
 const presetColors = [
   "#8c8c8c",
@@ -264,6 +339,7 @@ const completedStatusSet = computed(
   () => new Set(completedStatuses.value.map(Number)),
 );
 const resetLoading = ref(false);
+const mutatingOption = ref(false);
 const modalOpen = ref(false);
 const transitionReloadKey = ref(0);
 const editingItem = ref(null);
@@ -271,6 +347,29 @@ const editLabel = ref("");
 const editColor = ref("#0d68ff");
 const canManage = computed(() =>
   authStore.hasPermission(typeSettingPermission(props.typeKey, "status")),
+);
+const statusTable = ref(null);
+const canReorder = computed(
+  () =>
+    canManage.value &&
+    (props.typeKey === "requirement" ||
+      (!!workspaceType.value && workspaceType.value !== "issue")),
+);
+const optionOrderDisabled = computed(
+  () =>
+    !canReorder.value ||
+    resetLoading.value ||
+    mutatingOption.value ||
+    modalOpen.value,
+);
+const { ordering, moveOption } = useWorkflowOptionOrder(
+  statuses,
+  () => statusTable.value?.$el.querySelector("tbody"),
+  optionOrderDisabled,
+  saveStatusOrder,
+);
+const optionMutationPending = computed(
+  () => ordering.value || mutatingOption.value || resetLoading.value,
 );
 const endStatusSet = computed(
   () => new Set((endStatuses.value || []).map(Number)),
@@ -314,7 +413,7 @@ const statusColumns = computed(() => [
     width: 110,
     align: "center",
   },
-  { key: "action", title: $t("settings_action"), width: 90, align: "center" },
+  { key: "action", title: $t("settings_action"), width: 90, align: "right" },
 ]);
 
 function isLight(h) {
@@ -329,10 +428,34 @@ function displayStatusName(name) {
     : name || "";
 }
 async function fetchStatuses() {
+  const { wsId, typeKey } = props;
   try {
-    statuses.value = (await listStatuses(props.wsId, props.typeKey)) || [];
+    const items = await listStatuses(wsId, typeKey);
+    if (wsId === props.wsId && typeKey === props.typeKey) {
+      statuses.value = items || [];
+    }
   } catch (e) {
     /* Network errors are handled centrally by the interceptor. */
+  }
+}
+
+async function saveStatusOrder(ids) {
+  const { wsId, typeKey } = props;
+  try {
+    await reorderStatuses(wsId, typeKey, ids);
+    message.success($t("common_saveSuccess"));
+    if (wsId === props.wsId) authStore.clearProjectMetadata();
+    return wsId === props.wsId && typeKey === props.typeKey;
+  } catch (error) {
+    if (wsId === props.wsId && typeKey === props.typeKey) {
+      if (error.response?.status === 409) {
+        message.warning(
+          error.response.data?.message || $t("common_requestFailed"),
+        );
+      }
+      await fetchStatuses();
+    }
+    return false;
   }
 }
 
@@ -406,13 +529,14 @@ async function toggleCompletedStatus(id, checked) {
 }
 
 async function resetToDefault() {
-  if (!canManage.value || saving.value || resetLoading.value) return;
+  if (!canManage.value || saving.value || optionMutationPending.value) return;
   resetLoading.value = true;
   try {
     await resetStatuses(props.wsId, props.typeKey);
     message.success($t("settings_restored"));
     await fetchStatuses();
     await fetchSettings();
+    authStore.clearProjectMetadata();
     transitionReloadKey.value += 1;
   } catch (e) {
     /* Network errors are handled centrally by the interceptor. */
@@ -422,7 +546,7 @@ async function resetToDefault() {
 }
 
 function openEditor(item) {
-  if (!canManage.value) return;
+  if (!canManage.value || optionMutationPending.value) return;
   if (item) {
     editLabel.value = item.name || "";
     editColor.value = item.color || "#0d68ff";
@@ -435,39 +559,47 @@ function openEditor(item) {
   modalOpen.value = true;
 }
 async function handleSave() {
-  if (!canManage.value) return;
+  if (!canManage.value || optionMutationPending.value) return;
   if (!editLabel.value) {
     message.warning($t("settings_nameRequired"));
     return;
   }
+  mutatingOption.value = true;
   try {
     if (editingItem.value) {
       await updateStatus(props.wsId, props.typeKey, editingItem.value.id, {
         name: editLabel.value,
         color: editColor.value,
-        sort_order: editingItem.value.sort_order,
       });
       message.success($t("settings_updated"));
     } else {
       await createStatus(props.wsId, props.typeKey, {
         name: editLabel.value,
         color: editColor.value,
-        sort_order: statuses.value.length + 1,
       });
       message.success($t("settings_added"));
     }
     modalOpen.value = false;
     await fetchStatuses();
-  } catch (e) {}
+  } catch (e) {
+  } finally {
+    mutatingOption.value = false;
+  }
 }
 async function deleteItem(item) {
-  if (!canManage.value) return;
+  if (!canManage.value || optionMutationPending.value) return;
+  mutatingOption.value = true;
   try {
     await deleteStatus(props.wsId, props.typeKey, item.id);
     message.success($t("settings_deleted"));
     await fetchStatuses();
     await fetchSettings();
-  } catch (e) {}
+    authStore.clearProjectMetadata();
+    transitionReloadKey.value += 1;
+  } catch (e) {
+  } finally {
+    mutatingOption.value = false;
+  }
 }
 
 let anchorScrollFrame = 0;
@@ -495,7 +627,13 @@ async function loadPanel() {
 }
 
 onMounted(loadPanel);
-watch(() => [props.wsId, props.typeKey], loadPanel);
+watch(
+  () => [props.wsId, props.typeKey],
+  () => {
+    statuses.value = [];
+    loadPanel();
+  },
+);
 </script>
 
 <style scoped>

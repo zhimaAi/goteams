@@ -31,6 +31,11 @@ func RegWorkflowRoutes(r lib_web.Route) {
 		"requirement_setting:status", "defect_setting:status"), controller.DeleteStatus)
 	r[http.MethodPut][statusPrefix+`/reset`] = wrapAction(withTypeScopedPerm(planningStatusPerm,
 		"requirement_setting:status", "defect_setting:status"), controller.ResetStatuses)
+	r[http.MethodPut][statusPrefix+`/order`] = wrapAction(withTypeScopedPerm(map[string]string{
+		define.TypeKeyRequirement: "requirement_setting:status",
+		define.TypeKeyDefect:      "defect_setting:status",
+		define.TypeKeyPlanning:    "planning:edit",
+	}), controller.ReorderStatuses)
 
 	// Priority CRUD.
 	r[http.MethodGet][prioPrefix] = wrapAction(withWorkspaceMember(), controller.ListPriorities)
@@ -44,10 +49,36 @@ func RegWorkflowRoutes(r lib_web.Route) {
 		"requirement_setting:priority", "defect_setting:priority"), controller.DeletePriority)
 	r[http.MethodPut][prioPrefix+`/reset`] = wrapAction(withTypeScopedPerm(planningStatusPerm,
 		"requirement_setting:priority", "defect_setting:priority"), controller.ResetPriorities)
+	r[http.MethodPut][prioPrefix+`/order`] = wrapAction(withTypeScopedPerm(map[string]string{
+		define.TypeKeyRequirement: "requirement_setting:priority",
+		define.TypeKeyDefect:      "defect_setting:priority",
+		define.TypeKeyPlanning:    "planning:edit",
+	}), controller.ReorderPriorities)
+
+	severityPrefix := `/api/workspaces/:wsId/severities`
+	manageSeverity := withPerm("defect_setting:priority")
+	r[http.MethodGet][severityPrefix] = wrapAction(withWorkspaceMember(), controller.ListSeverities)
+	r[http.MethodPost][severityPrefix] = wrapAction(manageSeverity, controller.SaveSeverity)
+	r[http.MethodPut][severityPrefix+`/:severityId`] = wrapAction(manageSeverity, controller.SaveSeverity)
+	r[http.MethodDelete][severityPrefix+`/:severityId`] = wrapAction(manageSeverity, controller.DeleteSeverity)
+	r[http.MethodPut][severityPrefix+`/default`] = wrapAction(manageSeverity, controller.SetDefaultSeverity)
+	r[http.MethodPut][severityPrefix+`/reset`] = wrapAction(manageSeverity, controller.ResetSeverities)
+	r[http.MethodPut][severityPrefix+`/order`] = wrapAction(manageSeverity, controller.ReorderSeverities)
 
 	// Start/End status configuration.
 	settingsPrefix := `/api/workspaces/:wsId/settings`
 	r[http.MethodGet][settingsPrefix] = wrapAction(withWorkspaceMember(), controller.GetWorkspaceSettings)
 	r[http.MethodPut][settingsPrefix] = wrapAction(withTypeScopedPerm(planningStatusPerm,
 		"requirement_setting:status", "defect_setting:status"), controller.UpdateWorkspaceSettings)
+
+	statusActions := `/api/workspaces/:wsId/status-action-settings`
+	manageStatusActions := withPerm("requirement_setting:status")
+	r[http.MethodGet][statusActions] = wrapAction(manageStatusActions, controller.GetWorkspaceStatusActions)
+	r[http.MethodPut][statusActions] = wrapAction(manageStatusActions, controller.SetWorkspaceStatusActionsEnabled)
+	r[http.MethodPost][statusActions+`/actions`] = wrapAction(manageStatusActions, controller.SaveWorkspaceStatusAction)
+	r[http.MethodPut][statusActions+`/actions/:actionId`] = wrapAction(manageStatusActions, controller.SaveWorkspaceStatusAction)
+	r[http.MethodDelete][statusActions+`/actions/:actionId`] = wrapAction(manageStatusActions, controller.SaveWorkspaceStatusAction)
+	r[http.MethodPost][statusActions+`/mappings`] = wrapAction(manageStatusActions, controller.SaveWorkspaceStatusActionMapping)
+	r[http.MethodPut][statusActions+`/mappings/:mappingId`] = wrapAction(manageStatusActions, controller.SaveWorkspaceStatusActionMapping)
+	r[http.MethodDelete][statusActions+`/mappings/:mappingId`] = wrapAction(manageStatusActions, controller.SaveWorkspaceStatusActionMapping)
 }

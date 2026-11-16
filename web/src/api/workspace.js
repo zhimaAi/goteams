@@ -1217,6 +1217,15 @@ export function resetStatuses(wsId, type) {
   });
 }
 
+export function reorderStatuses(wsId, type, ids) {
+  return request({
+    url: `/api/workspaces/${wsId}/statuses/order`,
+    method: "PUT",
+    params: { type },
+    data: { ids },
+  });
+}
+
 // ======================== Start/End Status Configuration ========================
 
 export function getWorkspaceSettings(wsId) {
@@ -1287,12 +1296,78 @@ export function resetPriorities(wsId, type) {
   });
 }
 
+export function reorderPriorities(wsId, type, ids) {
+  return request({
+    url: `/api/workspaces/${wsId}/priorities/order`,
+    method: "PUT",
+    params: { type },
+    data: { ids },
+  });
+}
+
+export function listSeverities(wsId) {
+  return request({ url: `/api/workspaces/${wsId}/severities`, method: "GET" });
+}
+
+export function reorderSeverities(wsId, ids) {
+  return request({
+    url: `/api/workspaces/${wsId}/severities/order`,
+    method: "PUT",
+    data: { ids },
+  });
+}
+
+export function createSeverity(wsId, data) {
+  return request({
+    url: `/api/workspaces/${wsId}/severities`,
+    method: "POST",
+    data,
+  });
+}
+
+export function updateSeverity(wsId, id, data) {
+  return request({
+    url: `/api/workspaces/${wsId}/severities/${id}`,
+    method: "PUT",
+    data,
+  });
+}
+
+export function updateDefaultSeverity(wsId, id) {
+  return request({
+    url: `/api/workspaces/${wsId}/severities/default`,
+    method: "PUT",
+    data: { severity_id: id },
+  });
+}
+
+export function deleteSeverity(wsId, id) {
+  return request({
+    url: `/api/workspaces/${wsId}/severities/${id}`,
+    method: "DELETE",
+  });
+}
+
+export function resetSeverities(wsId) {
+  return request({
+    url: `/api/workspaces/${wsId}/severities/reset`,
+    method: "PUT",
+  });
+}
+
+export function listTemplateRoleOptions(wsId) {
+  return request({
+    url: `/api/workspaces/${wsId}/roles/template-options`,
+    method: "GET",
+  });
+}
+
 /** List templates linked to the workspace, plus the feature switch. */
-export function listWorkItemTemplates(wsId, type) {
+export function listWorkItemTemplates(wsId, type, manage = false) {
   return request({
     url: `/api/workspaces/${wsId}/work-item-templates`,
     method: "GET",
-    params: { type },
+    params: { type, manage: manage ? 1 : undefined },
   });
 }
 
@@ -1340,6 +1415,15 @@ export function updateWorkItemTemplate(wsId, type, templateId, data) {
     method: "PUT",
     params: { type },
     data,
+  });
+}
+
+export function updateWorkItemTemplateVisibility(wsId, type, templateId, ids) {
+  return request({
+    url: `/api/workspaces/${wsId}/work-item-templates/${templateId}/visibility`,
+    method: "PATCH",
+    params: { type },
+    data: { visible_role_ids: ids },
   });
 }
 
@@ -1419,5 +1503,25 @@ export function saveNotificationUserMappings(items) {
     url: "/api/enterprise/external-notification/user-mappings",
     method: "PUT",
     data: { items },
+  });
+}
+
+export function getWorkspaceStatusActions(wsId) {
+  return request({ url: `/api/workspaces/${wsId}/status-action-settings` });
+}
+
+export function setWorkspaceStatusActionsEnabled(wsId, enabled) {
+  return request({
+    url: `/api/workspaces/${wsId}/status-action-settings`,
+    method: "PUT",
+    data: { enabled },
+  });
+}
+
+export function saveWorkspaceStatusAction(wsId, resource, id, data) {
+  return request({
+    url: `/api/workspaces/${wsId}/status-action-settings/${resource}${id ? `/${id}` : ""}`,
+    method: data ? (id ? "PUT" : "POST") : "DELETE",
+    data,
   });
 }

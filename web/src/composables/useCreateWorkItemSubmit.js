@@ -77,6 +77,11 @@ export function useCreateWorkItemSubmit(ctx) {
         template_id: Number(ctx.selectedTemplate.value?.id) || 0,
         image_file_ids: ctx.imageFileIds.value,
         type: ctx.type.value,
+        severity_id:
+          ctx.type.value === "defect" &&
+          ctx.isTemplateFieldVisible("severity_id")
+            ? ctx.severityId.value
+            : undefined,
         priority: fieldValue("priority", ctx.priority.value, null) ?? null,
         status_id: fieldValue("status", ctx.status.value, 0) || 0,
         parent_id: Number(ctx.parentId.value) || 0,
@@ -136,6 +141,9 @@ export function useCreateWorkItemSubmit(ctx) {
       ctx.description.value = "";
       ctx.imageFileIds.value = [];
       ctx.parentId.value = undefined;
+      ctx.severityId.value = ctx.severityOptions.value.find(
+        (item) => Number(item.is_default) === 1,
+      )?.id;
       if (ctx.selectedTemplate.value)
         ctx.applyTemplate(ctx.selectedTemplate.value);
       await ctx.draft.list();

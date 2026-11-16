@@ -47,6 +47,7 @@ export function useCreateWorkItemTemplate(ctx) {
   }
 
   function isTemplateFieldVisible(key) {
+    if (key === "severity_id") return ctx.fieldEnabled(key);
     const customId = parseCustomTemplateFieldId(key);
     const custom = ctx.customFields.value.find(
       (field) => Number(field.id) === customId,

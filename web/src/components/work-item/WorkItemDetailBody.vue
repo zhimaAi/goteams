@@ -357,11 +357,7 @@
             />
           </a-tab-pane>
           <a-tab-pane
-            v-if="
-              detail.type === 'requirement' &&
-              workspaceMetadata?.workspace?.workspace_type === 'issue' &&
-              workspaceMetadata?.settings?.sla_enabled
-            "
+            v-if="showSlaTab"
             key="sla"
             :disabled="descriptionEditing"
             :tab="$t('sla_title')"
@@ -604,6 +600,54 @@
                 :priority="detail.priority"
                 :label="detail.priority_name"
                 :color="detail.priority_color"
+              />
+            </span>
+          </div>
+          <div
+            v-if="fieldEnabled(detail.type, 'severity_id')"
+            class="prop-item"
+            :style="fieldOrderStyle(detail.type, 'severity_id')"
+          >
+            <span class="prop-label">{{ $t("workspace_severity") }}</span>
+            <a-select
+              v-if="
+                editingProperty === 'severity_id' &&
+                fieldEditable(detail.type, 'severity_id')
+              "
+              :value="Number(detail.severity_id) || undefined"
+              size="small"
+              default-open
+              :placeholder="$t('settings_none')"
+              allowClear
+              autofocus
+              style="width: 110px"
+              @change="(value) => saveProperty('severity_id', value ?? null)"
+              @dropdownVisibleChange="(open) => !open && (editingProperty = '')"
+            >
+              <a-select-option
+                v-for="item in workspaceMetadata?.defect?.severities || []"
+                :key="item.id"
+                :value="item.id"
+                >{{ displayName(item.name || item.label) }}</a-select-option
+              >
+            </a-select>
+            <span
+              v-else
+              class="property-pill-trigger"
+              :class="{ editable: fieldEditable(detail.type, 'severity_id') }"
+              @click="
+                fieldEditable(detail.type, 'severity_id') &&
+                (editingProperty = 'severity_id')
+              "
+            >
+              <span v-if="!Number(detail.severity_id)">{{
+                $t("settings_none")
+              }}</span>
+              <PriorityPill
+                v-else
+                :priority="detail.severity_id"
+                :label="detail.severity_name"
+                :color="detail.severity_color"
               />
             </span>
           </div>
@@ -940,6 +984,8 @@
     :ws-id="wsId"
     :work-item="detail"
     :metadata="workspaceMetadata"
+    :status-action="transitionStatusAction"
+    @stale="refreshStatusActions(wsId, detail.id)"
     @success="handleStatusTransitionSuccess"
   />
 </template>
@@ -1017,6 +1063,8 @@ const {
   customFields,
   workspaceMetadata,
   transitionOpen,
+  transitionStatusAction,
+  refreshStatusActions,
   statusTransitionOn,
   customValues,
   commentInputStyle,
@@ -1079,6 +1127,12 @@ const {
   mode,
 } = props.model;
 const sidebarTab = ref("processing");
+const showSlaTab = computed(
+  () =>
+    detail.value?.type === "requirement" &&
+    workspaceMetadata.value?.workspace?.workspace_type === "issue" &&
+    workspaceMetadata.value?.settings?.sla_enabled,
+);
 const primaryTabs = computed(() => [
   { key: "desc", label: t("requirement_description") },
   {
@@ -1088,6 +1142,7 @@ const primaryTabs = computed(() => [
   ...(detail.value?.type === "requirement"
     ? [{ key: "aging", label: t("aging_column") }]
     : []),
+  ...(showSlaTab.value ? [{ key: "sla", label: t("sla_title") }] : []),
 ]);
 const moreTabs = computed(() => [
   ...(detail.value?.type === "requirement"

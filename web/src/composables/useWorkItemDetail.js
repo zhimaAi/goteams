@@ -58,6 +58,7 @@ import {
   updateRequirement,
 } from "@/api/workspace";
 import { isStatusTransitionEnabled } from "@/utils/statusTransition";
+import { useWorkItemStatusActions } from "@/composables/useWorkItemStatusActions";
 import {
   showWorkItemActionSuccess,
   showWorkItemUpdateSuccess,
@@ -433,6 +434,25 @@ export function useWorkItemDetail(props, emit) {
   const workspaceMetadata = ref(null);
   const transitionOpen = ref(false);
   let statusTransitionContext;
+  const transitionStatusAction = ref(null);
+  const { statusActionsFor, runStatusAction, refreshStatusActions } =
+    useWorkItemStatusActions({
+      wsId: computed(() => props.wsId),
+      metadata: workspaceMetadata,
+      canEditStatus: (type) => isIssueDetail && fieldEditable(type, "status"),
+      openTransition(item, action) {
+        if (String(item.id) !== String(props.requirementId)) return;
+        statusTransitionContext = detailLoadContext();
+        transitionStatusAction.value = action;
+        transitionOpen.value = true;
+      },
+      async onRefresh(itemId) {
+        const context = detailLoadContext();
+        if (String(itemId) === String(context.id))
+          await loadCurrentDetail(context);
+      },
+    });
+
   const statusTransitionOn = computed(() =>
     isStatusTransitionEnabled(
       workspaceMetadata.value?.settings,
@@ -637,6 +657,7 @@ export function useWorkItemDetail(props, emit) {
   }
   function fieldEnabled(type, key) {
     const config = fieldConfig(type, key);
+    if (key === "severity_id" && (type !== "defect" || !config)) return false;
     if (workHourFieldKeys.has(key) && !config) return false;
     if (config && Number(config.enabled) !== 1) return false;
     const setting = displaySettings.value[type];
@@ -751,6 +772,7 @@ export function useWorkItemDetail(props, emit) {
       status: "workspace_status",
       status_id: "workspace_status",
       priority: "workspace_priority",
+      severity_id: "workspace_severity",
       category_id: "workspace_field_category",
       assignee: "workspace_assignee",
       version_id: "workspace_version",
@@ -1301,6 +1323,7 @@ export function useWorkItemDetail(props, emit) {
     if (!fieldEditable(detail.value?.type, "status")) return;
     if (statusTransitionOn.value) {
       statusTransitionContext = detailLoadContext();
+      transitionStatusAction.value = null;
       transitionOpen.value = true;
       return;
     }
@@ -1653,6 +1676,10 @@ export function useWorkItemDetail(props, emit) {
     customFields,
     workspaceMetadata,
     transitionOpen,
+    transitionStatusAction,
+    statusActionsFor,
+    runStatusAction,
+    refreshStatusActions,
     statusTransitionOn,
     customValues,
     commentInputStyle,

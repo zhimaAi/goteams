@@ -25,8 +25,3 @@ const (
 	// TemplatePackageMaxEntryBytes bounds one package entry.
 	TemplatePackageMaxEntryBytes = 32 << 20
 )
-
-// Template package export message key. A package that cannot be read only ever reaches the logs
-// (the copy degrades to the seed), so those failures get no key, and a
-// forbidden export answers a bare 403 with no message at all.
-const MsgTemplatePackageTooLarge = "template_package_too_large"

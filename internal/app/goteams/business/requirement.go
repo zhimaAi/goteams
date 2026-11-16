@@ -116,7 +116,7 @@ func normalizeStoredAssigneeIDs(value string) string {
 }
 
 var requirementUpdatableFields = map[string]bool{
-	`title`: true, `description`: true, `description_mode`: true, `priority`: true, `status_id`: true,
+	`title`: true, `description`: true, `description_mode`: true, `priority`: true, `severity_id`: true, `status_id`: true,
 	`parent_id`: true, `assignee_ids`: true, `version_id`: true,
 	`planned_start_date`: true, `planned_end_date`: true,
 	`work_hours`: true,
@@ -187,7 +187,10 @@ type RequirementModel struct {
 	UpdatedAt          int64
 	StatusName         string // DB stores an i18n key, translated by the controller per request language
 	StatusColor        string
-	AgingStatus        int    // Derived overall aging conclusion: 0=normal, 1=due soon, 2=overdue; the worst span wins, maintained by the SLA worker.
+	AgingStatus        int // Derived overall aging conclusion: 0=normal, 1=due soon, 2=overdue; the worst span wins, maintained by the SLA worker.
+	SeverityId         int
+	SeverityName       string
+	SeverityColor      string
 	PriorityName       string // DB stores an i18n key, translated by the controller per request language
 	PriorityColor      string
 	CreatorName        string
@@ -271,6 +274,8 @@ func toRequirementModel(row msql.Params) (RequirementModel, error) {
 		TemplateName:  row[`template_name`],
 		StatusName:    row[`status_name`],
 		StatusColor:   row[`status_color`],
+		SeverityName:  row[`severity_name`],
+		SeverityColor: row[`severity_color`],
 		PriorityName:  row[`priority_name`],
 		PriorityColor: row[`priority_color`],
 		CreatorName:   row[`creator_name`],
@@ -296,6 +301,7 @@ func toRequirementModel(row msql.Params) (RequirementModel, error) {
 	model.ParentId = int(number(`parent_id`))
 	model.CategoryId = int(number(`category_id`))
 	model.Priority = int(number(`priority`))
+	model.SeverityId = int(number(`severity_id`))
 	model.StatusId = int(number(`status_id`))
 	model.TemplateId = int(number(`template_id`))
 	model.CreatedBy = int(number(`created_by`))
@@ -571,7 +577,7 @@ func ListRequirements(model ListRequirementsModel) (ListRequirementsModel, error
 		COALESCE(_assignee.assignee_ids, '[]') AS assignee_ids, r.version_id, r.planned_start_date, r.planned_end_date,
 		r.work_hours, r.completed_work_hours, r.created_at, r.updated_at, r.aging_status,
 		s.name AS status_name, s.color AS status_color, p.name AS priority_name,
-		p.color AS priority_color, COALESCE(u2.name, ru2.name, '') AS creator_name, w.name AS workspace_name,
+		p.color AS priority_color, r.severity_id, severity.name AS severity_name, severity.color AS severity_color, COALESCE(u2.name, ru2.name, '') AS creator_name, w.name AS workspace_name,
 		v.name AS version_name, parent.title AS parent_title,
 		COALESCE(_assignee.assignee_names, '[]') AS assignee_names,
 		COALESCE(_assignee.assignee_avatars, '[]') AS assignee_avatars,
@@ -579,6 +585,7 @@ func ListRequirements(model ListRequirementsModel) (ListRequirementsModel, error
 		FROM `+fromSQL+`
 		LEFT JOIN workspace_statuses s ON s.id = r.status_id AND s.admin_id = r.admin_id AND s.workspace_id = r.workspace_id AND s.type_key = r.type
 		LEFT JOIN workspace_priorities p ON p.id = r.priority AND p.admin_id = r.admin_id AND p.workspace_id = r.workspace_id AND p.type_key = r.type
+		LEFT JOIN `+define.TableWorkspaceSeverities+` severity ON severity.id = r.severity_id AND severity.admin_id = r.admin_id AND severity.workspace_id = r.workspace_id AND r.type = 'defect'
 		LEFT JOIN users u2 ON u2.id = r.created_by AND u2.admin_id = r.admin_id
 		LEFT JOIN removed_users ru2 ON ru2.user_id = r.created_by AND ru2.admin_id = r.admin_id
 		LEFT JOIN workspaces w ON w.id = r.workspace_id AND w.admin_id = r.admin_id
@@ -719,7 +726,7 @@ func buildWorkItemListSQL(extraColumns, extraJoins, filter, orderBy string) stri
 		r.work_hours, r.completed_work_hours, r.comment_count, r.created_by, r.created_at, r.updated_at,
 		w.name AS workspace_name, w.color AS workspace_color,
 		s.name AS status_name, s.color AS status_color, s.sort_order AS status_sort_order,
-		p.name AS priority_name, p.color AS priority_color, p.sort_order AS priority_sort_order,
+		p.name AS priority_name, p.color AS priority_color, r.severity_id, severity.name AS severity_name, severity.color AS severity_color, p.sort_order AS priority_sort_order,
 		COALESCE(_assignee.assignee_ids, '[]') AS assignee_ids,
 		COALESCE(_assignee.assignee_names, '[]') AS assignee_names,
 		COALESCE(_assignee.assignee_avatars, '[]') AS assignee_avatars,
@@ -742,6 +749,7 @@ func buildWorkItemListSQL(extraColumns, extraJoins, filter, orderBy string) stri
 		LEFT JOIN workspace_statuses s ON s.id = r.status_id AND s.admin_id = r.admin_id
 			AND s.workspace_id = r.workspace_id AND s.type_key = r.type
 		LEFT JOIN workspace_priorities p ON p.id = r.priority AND p.admin_id = r.admin_id
+		LEFT JOIN `+define.TableWorkspaceSeverities+` severity ON severity.id = r.severity_id AND severity.admin_id = r.admin_id AND severity.workspace_id = r.workspace_id AND r.type = 'defect'
 			AND p.workspace_id = r.workspace_id AND p.type_key = r.type
 		LEFT JOIN LATERAL (
 			SELECT COALESCE(json_agg(assigned.user_id ORDER BY assigned.ordinality), '[]'::json)::text AS assignee_ids,
@@ -904,7 +912,7 @@ func getRequirementById(tx *sql.Tx, adminId int, wsId, reqId string) (msql.Param
 		r.priority, r.status_id, r.version_id, r.planned_start_date, r.planned_end_date,
 		r.work_hours, r.completed_work_hours, r.comment_count, r.created_by, r.created_at, r.updated_at,
 		s.name AS status_name, s.color AS status_color, p.name AS priority_name,
-		p.color AS priority_color, COALESCE(u2.name, ru2.name, '') AS creator_name,
+		p.color AS priority_color, r.severity_id, severity.name AS severity_name, severity.color AS severity_color, COALESCE(u2.name, ru2.name, '') AS creator_name,
 		v.name AS version_name, parent.title AS parent_title,
 		ir.openid AS invite_openid,
 		COALESCE(_assignee.assignee_ids, '[]') AS assignee_ids,
@@ -915,6 +923,7 @@ func getRequirementById(tx *sql.Tx, adminId int, wsId, reqId string) (msql.Param
 		LEFT JOIN workspace_statuses s ON s.id = r.status_id AND s.admin_id = r.admin_id
 			AND s.workspace_id = r.workspace_id AND s.type_key = r.type
 		LEFT JOIN workspace_priorities p ON p.id = r.priority AND p.admin_id = r.admin_id
+		LEFT JOIN ` + define.TableWorkspaceSeverities + ` severity ON severity.id = r.severity_id AND severity.admin_id = r.admin_id AND severity.workspace_id = r.workspace_id AND r.type = 'defect'
 			AND p.workspace_id = r.workspace_id AND p.type_key = r.type
 		LEFT JOIN users u2 ON u2.id = r.created_by
 		LEFT JOIN removed_users ru2 ON ru2.user_id = r.created_by AND ru2.admin_id = r.admin_id
@@ -1149,6 +1158,7 @@ type CreateRequirementModel struct {
 	Description        string
 	DescriptionMode    string
 	Type               string
+	SeverityId         *int
 	Priority           *int // nil means not provided; filled by the project default priority
 	StatusId           int
 	TemplateId         int
@@ -1202,7 +1212,7 @@ func CreateRequirement(model CreateRequirementModel) (CreateRequirementModel, er
 			return CreateRequirementModel{}, ErrWorkItemTemplateNotFound
 		}
 		template, err := GetWorkItemTemplate(GetWorkItemTemplateModel{
-			AdminId: model.AdminId, WorkspaceId: wsId, TemplateId: model.TemplateId, TypeKey: model.Type,
+			AdminId: model.AdminId, UserId: model.UserId, WorkspaceId: wsId, TemplateId: model.TemplateId, TypeKey: model.Type,
 		})
 		if err != nil {
 			return CreateRequirementModel{}, err
@@ -1302,16 +1312,20 @@ func CreateRequirement(model CreateRequirementModel) (CreateRequirementModel, er
 	if err != nil {
 		return CreateRequirementModel{}, err
 	}
+	severityId, err := resolveSeverityId(tx, model.AdminId, model.WorkspaceId, model.Type, model.SeverityId)
+	if err != nil {
+		return CreateRequirementModel{}, err
+	}
 	now := tool.Time2Int()
 	rows, err := msql.RawValues(define.Postgres, `INSERT INTO requirements
 		(workspace_id, parent_id, category_id, title, description, description_mode, type, priority,
 		 status_id, assignee_ids, version_id, planned_start_date, planned_end_date, work_hours,
-		 created_by, admin_id, created_at, updated_at, completed_at, template_id, template_name)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17,$18,$19,$20) RETURNING id`, tx,
+		 created_by, admin_id, created_at, updated_at, completed_at, template_id, template_name, severity_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17,$18,$19,$20,$21) RETURNING id`, tx,
 		model.WorkspaceId, model.ParentId, model.CategoryId, model.Title, model.Description,
 		model.DescriptionMode, model.Type, priorityID, model.StatusId, pq.Array(model.AssigneeIds),
 		model.VersionId, model.PlannedStartDate, model.PlannedEndDate, model.EstimatedWorkHours,
-		model.UserId, model.AdminId, now, completedAt, model.TemplateId, templateName)
+		model.UserId, model.AdminId, now, completedAt, model.TemplateId, templateName, severityId)
 	if err != nil {
 		logs.Error("create requirement failed, err:%s", err.Error())
 		return CreateRequirementModel{}, err
@@ -1576,6 +1590,12 @@ func updateRequirement(tx *sql.Tx, adminId int, wsId, reqId string, updates map[
 					return err
 				}
 			}
+		}
+	}
+	if rawSeverity, ok := updates[`severity_id`]; ok {
+		severityId := cast.ToInt(rawSeverity)
+		if _, err := resolveSeverityId(tx, adminId, cast.ToInt(wsId), oldData[`type`], &severityId); err != nil {
+			return err
 		}
 	}
 	if rawPriority, ok := updates[`priority`]; ok && cast.ToInt(rawPriority) > 0 {

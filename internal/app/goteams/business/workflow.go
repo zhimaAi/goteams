@@ -3,8 +3,11 @@
 package business
 
 import (
+	"errors"
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 
 	"goteams/internal/app/goteams/define"
 	"goteams/internal/pkg/lib_i18n"
@@ -21,7 +24,12 @@ import (
 const statusQueryFields = `id,name,color,sort_order,is_default`
 
 // priorityQueryFields are the priority table's query fields, to avoid SELECT *.
-const priorityQueryFields = `id,name,color,sort_order,is_default`
+const priorityQueryFields = `id,key,name,color,sort_order,is_default`
+
+const builtinStatusFlag = 1
+
+// ErrBuiltinWorkflowItem 以内置数据保护拒绝删除状态或优先级。
+var ErrBuiltinWorkflowItem = errors.New("cannot delete a built-in workflow item")
 
 // StatusModel is the work-item status business data.
 type StatusModel struct {
@@ -30,6 +38,7 @@ type StatusModel struct {
 	Color     string
 	SortOrder int
 	IsDefault int
+	IsBuiltin bool
 }
 
 // PriorityModel is the work-item priority business data.
@@ -40,6 +49,7 @@ type PriorityModel struct {
 	Color     string
 	SortOrder int
 	IsDefault int
+	IsBuiltin bool
 }
 
 // ListStatusesModel describes the status list use case.
@@ -58,7 +68,7 @@ type CreateStatusModel struct {
 	TypeKey   string
 	Name      string
 	Color     string
-	SortOrder int
+	SortOrder *int
 	Id        int
 }
 
@@ -70,7 +80,7 @@ type UpdateStatusModel struct {
 	StatusId  int
 	Name      string
 	Color     string
-	SortOrder int
+	SortOrder *int
 }
 
 // DeleteStatusModel describes the delete-status use case.
@@ -97,7 +107,7 @@ type CreatePriorityModel struct {
 	TypeKey   string
 	Name      string
 	Color     string
-	SortOrder int
+	SortOrder *int
 	Id        int
 }
 
@@ -109,7 +119,7 @@ type UpdatePriorityModel struct {
 	PriorityId int
 	Name       string
 	Color      string
-	SortOrder  int
+	SortOrder  *int
 }
 
 // DeletePriorityModel describes the delete-priority use case.
@@ -155,11 +165,12 @@ func toStatusModel(row msql.Params, lang string) (StatusModel, error) {
 		Color:     row[`color`],
 		SortOrder: sortOrder,
 		IsDefault: isDefault,
+		IsBuiltin: isDefault == builtinStatusFlag,
 	}, nil
 }
 
 // toPriorityModel converts a priority data row into the business model.
-func toPriorityModel(row msql.Params, lang string) (PriorityModel, error) {
+func toPriorityModel(row msql.Params, typeKey, lang string) (PriorityModel, error) {
 	id, err := strconv.Atoi(row[`id`])
 	if err != nil {
 		return PriorityModel{}, fmt.Errorf(`parse priority id: %w`, err)
@@ -179,7 +190,21 @@ func toPriorityModel(row msql.Params, lang string) (PriorityModel, error) {
 		Color:     row[`color`],
 		SortOrder: sortOrder,
 		IsDefault: isDefault,
+		IsBuiltin: builtinPriorityKey(typeKey, row[`key`], row[`name`]) != "",
 	}, nil
+}
+
+func builtinPriorityKey(typeKey, key, storedName string) string {
+	for _, preset := range presetPriorities {
+		if preset.TypeKey != typeKey {
+			continue
+		}
+		// 旧模板复制丢失了键，仍带原始国际化标记的预置项可以识别。
+		if preset.Key == key || (key == "" && preset.Name == storedName) {
+			return preset.Key
+		}
+	}
+	return ""
 }
 
 // ListStatuses returns the status list for the given type under a workspace (ordered by sort_order).
@@ -212,41 +237,36 @@ func CreateStatus(model CreateStatusModel) (CreateStatusModel, error) {
 	if len(model.Name) == 0 {
 		return CreateStatusModel{}, fmt.Errorf("status name is empty")
 	}
-	// Ensure the status name is unique within the same workspace and type.
-	queryM := msql.Model(define.TableWorkItemStatuses, define.Postgres)
-	exist, err := queryM.Where2([][]string{
-		{`admin_id`, cast.ToString(model.AdminId)},
-		{`workspace_id`, model.WsId},
-		{`type_key`, model.TypeKey},
-		{`name`, model.Name},
-	}).Value(`id`)
+	tx, err := msql.Begin(define.Postgres)
 	if err != nil {
-		logs.Error("sql:%s, err:%s", queryM.GetLastSql(), err.Error())
 		return CreateStatusModel{}, err
 	}
-	if len(exist) > 0 {
-		return CreateStatusModel{}, fmt.Errorf("status name already exists: %s", model.Name)
-	}
-	now := tool.Time2Int()
-	insertM := msql.Model(define.TableWorkItemStatuses, define.Postgres)
-	id, err := insertM.Insert(msql.Datas{
-		`admin_id`:     model.AdminId,
-		`workspace_id`: model.WsId,
-		`type_key`:     model.TypeKey,
-		`name`:         model.Name,
-		`color`:        model.Color,
-		`sort_order`:   model.SortOrder,
-		`is_default`:   0,
-		`created_at`:   now,
-		`updated_at`:   now,
-	}, `id`)
-	if err != nil {
-		logs.Error("sql:%s, err:%s", insertM.GetLastSql(), err.Error())
+	defer func() { _ = tx.Rollback() }()
+	workspaceID := cast.ToInt(model.WsId)
+	if _, err := lockStatusActionWorkspace(tx, model.AdminId, workspaceID, true); err != nil {
 		return CreateStatusModel{}, err
 	}
-	model.Id = cast.ToInt(id)
-	if err := InitializeDisplaySettingStatus(model.AdminId, model.WsId, model.TypeKey, model.Id); err != nil {
-		logs.Error("initialize display setting status failed, err:%s", err.Error())
+	sortOrder := 0
+	if model.SortOrder != nil {
+		sortOrder = *model.SortOrder
+	} else if sortOrder, err = nextWorkflowOptionSortOrder(tx, define.TableWorkItemStatuses, model.AdminId, workspaceID, model.TypeKey); err != nil {
+		return CreateStatusModel{}, err
+	}
+	rows, err := statusActionRows(tx, "INSERT INTO "+define.TableWorkItemStatuses+
+		" (admin_id,workspace_id,type_key,name,color,sort_order,is_default,created_at,updated_at)"+
+		" VALUES ($1,$2,$3,$4,$5,$6,0,$7,$7) RETURNING id",
+		model.AdminId, workspaceID, model.TypeKey, model.Name, model.Color, sortOrder, tool.Time2Int())
+	if err != nil {
+		return CreateStatusModel{}, err
+	}
+	model.Id, err = strconv.Atoi(rows[0]["id"])
+	if err != nil {
+		return CreateStatusModel{}, err
+	}
+	if err := initializeDisplaySettingStatus(tx, model.AdminId, model.WsId, model.TypeKey, model.Id); err != nil {
+		return CreateStatusModel{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return CreateStatusModel{}, err
 	}
 	return model, nil
@@ -268,19 +288,21 @@ func UpdateStatus(model UpdateStatusModel) error {
 	if len(row) == 0 {
 		return fmt.Errorf("status not found: %d", model.StatusId)
 	}
-	now := tool.Time2Int()
+	updates := msql.Datas{
+		`name`:       model.Name,
+		`color`:      model.Color,
+		`updated_at`: tool.Time2Int(),
+	}
+	if model.SortOrder != nil {
+		updates[`sort_order`] = *model.SortOrder
+	}
 	updateM := msql.Model(define.TableWorkItemStatuses, define.Postgres)
 	_, err = updateM.Where2([][]string{
 		{`admin_id`, cast.ToString(model.AdminId)},
 		{`workspace_id`, model.WsId},
 		{`type_key`, model.TypeKey},
 		{`id`, cast.ToString(model.StatusId)},
-	}).Update(msql.Datas{
-		`name`:       model.Name,
-		`color`:      model.Color,
-		`sort_order`: model.SortOrder,
-		`updated_at`: now,
-	})
+	}).Update(updates)
 	if err != nil {
 		logs.Error("sql:%s, err:%s", updateM.GetLastSql(), err.Error())
 		return err
@@ -290,79 +312,94 @@ func UpdateStatus(model UpdateStatusModel) error {
 
 // DeleteStatus deletes a work-item status.
 func DeleteStatus(model DeleteStatusModel) error {
-	queryM := msql.Model(define.TableWorkItemStatuses, define.Postgres)
-	row, err := queryM.Field(`id`).Where2([][]string{
-		{`admin_id`, cast.ToString(model.AdminId)},
-		{`workspace_id`, model.WsId},
-		{`type_key`, model.TypeKey},
-		{`id`, cast.ToString(model.StatusId)},
-	}).Find()
+	tx, err := msql.Begin(define.Postgres)
 	if err != nil {
-		logs.Error("sql:%s, err:%s", queryM.GetLastSql(), err.Error())
 		return err
 	}
-	if len(row) == 0 {
+	defer func() { _ = tx.Rollback() }()
+	workspaceType, err := lockStatusActionWorkspace(tx, model.AdminId, cast.ToInt(model.WsId), true)
+	if err != nil {
+		return err
+	}
+	statuses, err := statusActionRows(tx, "SELECT is_default FROM "+define.TableWorkItemStatuses+
+		" WHERE admin_id=$1 AND workspace_id=$2 AND type_key=$3 AND id=$4 FOR UPDATE",
+		model.AdminId, model.WsId, model.TypeKey, model.StatusId)
+	if err != nil {
+		return err
+	}
+	if len(statuses) == 0 {
 		return fmt.Errorf("status not found: %d", model.StatusId)
 	}
-	settings, err := GetWorkspaceSettings(WorkspaceSettingsModel{AdminId: model.AdminId, WsId: model.WsId})
-	if err != nil {
-		return err
+	if cast.ToInt(statuses[0]["is_default"]) == builtinStatusFlag {
+		return ErrBuiltinWorkflowItem
 	}
-	settingsData := deletedStatusSettingsData(settings, model.TypeKey, model.StatusId)
-
-	txM := msql.Model(define.TableWorkItemStatuses, define.Postgres)
-	if err = txM.Begin(); err != nil {
-		logs.Error("begin delete status transaction failed, err:%s", err.Error())
-		return err
-	}
-	defer func() { _ = txM.Rollback() }()
-	if _, err = txM.Where2([][]string{
-		{`admin_id`, cast.ToString(model.AdminId)},
-		{`workspace_id`, model.WsId},
-		{`type_key`, model.TypeKey},
-		{`id`, cast.ToString(model.StatusId)},
-	}).Delete(); err != nil {
-		logs.Error("sql:%s, err:%s", txM.GetLastSql(), err.Error())
-		return err
-	}
-	if len(settingsData) > 0 {
-		now := tool.Time2Int()
-		settingsData[`updated_at`] = now
-		txM.Table(define.TableWorkspaceSettings)
-		exist, queryErr := txM.Where2([][]string{
-			{`admin_id`, cast.ToString(model.AdminId)},
-			{`workspace_id`, model.WsId},
-		}).Value(`id`)
-		if queryErr != nil {
-			return queryErr
-		}
-		if len(exist) > 0 {
-			_, err = txM.Where2([][]string{
-				{`admin_id`, cast.ToString(model.AdminId)},
-				{`workspace_id`, model.WsId},
-			}).Update(settingsData)
-		} else {
-			settingsData[`admin_id`] = model.AdminId
-			settingsData[`workspace_id`] = model.WsId
-			settingsData[`created_at`] = now
-			_, err = txM.Insert(settingsData)
-		}
-		if err != nil {
-			logs.Error("clear deleted status from settings failed, sql:%s, err:%s", txM.GetLastSql(), err.Error())
+	if workspaceType == define.WorkspaceTypeIssue && model.TypeKey == define.TypeKeyRequirement {
+		if _, err = statusActionExec(tx, "DELETE FROM "+define.TableWorkspaceStatusActionMappings+statusActionScope+statusActionType+
+			" AND (source_status_id=$3 OR target_status_id=$3)", model.AdminId, model.WsId, model.StatusId); err != nil {
 			return err
 		}
 	}
-	if err = txM.Commit(); err != nil {
-		logs.Error("commit delete status transaction failed, err:%s", err.Error())
+	result, err := statusActionExec(tx, "DELETE FROM "+define.TableWorkItemStatuses+
+		" WHERE admin_id=$1 AND workspace_id=$2 AND type_key=$3 AND id=$4", model.AdminId, model.WsId, model.TypeKey, model.StatusId)
+	if err != nil {
 		return err
 	}
-	if err := RemoveDisplaySettingStatus(model.AdminId, model.WsId, model.TypeKey, model.StatusId); err != nil {
-		logs.Error("clear deleted status display setting failed, err:%s", err.Error())
+	deleted, err := result.RowsAffected()
+	if err != nil {
 		return err
 	}
-	if len(settingsData) > 0 {
-		if recalcErr := RecalcWorkspaceVersionCounts(model.AdminId, cast.ToInt(model.WsId)); recalcErr != nil {
-			logs.Error("RecalcWorkspaceVersionCounts after status delete failed, err:%s", recalcErr.Error())
+	if deleted == 0 {
+		return fmt.Errorf("status not found: %d", model.StatusId)
+	}
+
+	rows, err := statusActionRows(tx, "SELECT requirement_initial_status_id,requirement_final_status_ids,requirement_completed_status_ids,"+
+		"defect_initial_status_id,defect_final_status_ids,defect_completed_status_ids,planning_initial_status_id,planning_final_status_ids FROM "+
+		define.TableWorkspaceSettings+" WHERE admin_id=$1 AND workspace_id=$2 FOR UPDATE", model.AdminId, model.WsId)
+	if err != nil {
+		return err
+	}
+	var settingsData msql.Datas
+	if len(rows) != 0 {
+		row := rows[0]
+		settingsData = deletedStatusSettingsData(WorkspaceSettingsModel{
+			RequirementInitialStatusId:    cast.ToInt(row["requirement_initial_status_id"]),
+			RequirementFinalStatusIds:     toIntSlice(row["requirement_final_status_ids"]),
+			RequirementCompletedStatusIds: toIntSlice(row["requirement_completed_status_ids"]),
+			DefectInitialStatusId:         cast.ToInt(row["defect_initial_status_id"]),
+			DefectFinalStatusIds:          toIntSlice(row["defect_final_status_ids"]),
+			DefectCompletedStatusIds:      toIntSlice(row["defect_completed_status_ids"]),
+			PlanningInitialStatusId:       cast.ToInt(row["planning_initial_status_id"]),
+			PlanningFinalStatusIds:        toIntSlice(row["planning_final_status_ids"]),
+		}, model.TypeKey, model.StatusId)
+	}
+	if len(settingsData) != 0 {
+		columns := make([]string, 0, len(settingsData))
+		for column := range settingsData {
+			columns = append(columns, column)
+		}
+		sort.Strings(columns)
+		args := []any{model.AdminId, model.WsId, tool.Time2Int()}
+		assignments := []string{"updated_at=$3"}
+		for _, column := range columns {
+			args = append(args, settingsData[column])
+			assignments = append(assignments, column+"=$"+strconv.Itoa(len(args)))
+		}
+		if _, err := statusActionExec(tx, "UPDATE "+define.TableWorkspaceSettings+" SET "+strings.Join(assignments, ",")+
+			" WHERE admin_id=$1 AND workspace_id=$2", args...); err != nil {
+			return err
+		}
+	}
+	if err = RemoveDisplaySettingStatusTx(tx, model.AdminId, model.WsId, model.TypeKey, model.StatusId); err != nil {
+		logs.Error("清理状态显示设置失败: %s", err.Error())
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		logs.Error("提交状态删除事务失败: %s", err.Error())
+		return err
+	}
+	if len(settingsData) != 0 {
+		if err := RecalcWorkspaceVersionCounts(model.AdminId, cast.ToInt(model.WsId)); err != nil {
+			logs.Error("RecalcWorkspaceVersionCounts after status delete failed, err:%s", err.Error())
 		}
 	}
 	return nil
@@ -382,7 +419,7 @@ func ListPriorities(model ListPrioritiesModel) (ListPrioritiesModel, error) {
 	}
 	items := make([]PriorityModel, 0, len(list))
 	for _, row := range list {
-		item, convErr := toPriorityModel(row, model.Lang)
+		item, convErr := toPriorityModel(row, model.TypeKey, model.Lang)
 		if convErr != nil {
 			logs.Error("convert priority row failed, err:%s", convErr.Error())
 			return ListPrioritiesModel{}, convErr
@@ -417,6 +454,9 @@ func SetDefaultPriority(model SetDefaultPriorityModel) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if _, err := lockStatusActionWorkspace(tx, model.AdminId, cast.ToInt(model.WsId), true); err != nil {
+		return err
+	}
 
 	if model.PriorityId > 0 {
 		rows, queryErr := msql.RawValues(define.Postgres, `SELECT id FROM workspace_priorities
@@ -459,33 +499,45 @@ func CreatePriority(model CreatePriorityModel) (CreatePriorityModel, error) {
 	if len(model.Name) == 0 {
 		return CreatePriorityModel{}, fmt.Errorf("priority name is empty")
 	}
-	now := tool.Time2Int()
-	insertM := msql.Model(define.TableWorkItemPriorities, define.Postgres)
-	id, err := insertM.Insert(msql.Datas{
-		`admin_id`:     model.AdminId,
-		`workspace_id`: model.WsId,
-		`type_key`:     model.TypeKey,
-		// 稳定键与自增 id 无关，供自动化规则跨工作空间引用。
-		`key`:        `priority_` + tool.MD5(cast.ToString(model.AdminId) + model.WsId + model.TypeKey + model.Name + cast.ToString(now))[:12],
-		`name`:       model.Name,
-		`color`:      model.Color,
-		`sort_order`: model.SortOrder,
-		`is_default`: 0,
-		`created_at`: now,
-		`updated_at`: now,
-	}, `id`)
+	tx, err := msql.Begin(define.Postgres)
 	if err != nil {
-		logs.Error("sql:%s, err:%s", insertM.GetLastSql(), err.Error())
 		return CreatePriorityModel{}, err
 	}
-	model.Id = cast.ToInt(id)
+	defer func() { _ = tx.Rollback() }()
+	workspaceID := cast.ToInt(model.WsId)
+	if _, err := lockStatusActionWorkspace(tx, model.AdminId, workspaceID, true); err != nil {
+		return CreatePriorityModel{}, err
+	}
+	sortOrder := 0
+	if model.SortOrder != nil {
+		sortOrder = *model.SortOrder
+	} else if sortOrder, err = nextWorkflowOptionSortOrder(tx, define.TableWorkItemPriorities, model.AdminId, workspaceID, model.TypeKey); err != nil {
+		return CreatePriorityModel{}, err
+	}
+	now := tool.Time2Int()
+	// 稳定键与自增 ID 无关，供自动化规则跨工作空间引用。
+	key := `priority_` + tool.MD5(cast.ToString(model.AdminId) + model.WsId + model.TypeKey + model.Name + cast.ToString(now))[:12]
+	rows, err := statusActionRows(tx, "INSERT INTO "+define.TableWorkItemPriorities+
+		" (admin_id,workspace_id,type_key,key,name,color,sort_order,is_default,created_at,updated_at)"+
+		" VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,$8) RETURNING id",
+		model.AdminId, workspaceID, model.TypeKey, key, model.Name, model.Color, sortOrder, now)
+	if err != nil {
+		return CreatePriorityModel{}, err
+	}
+	model.Id, err = strconv.Atoi(rows[0]["id"])
+	if err != nil {
+		return CreatePriorityModel{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return CreatePriorityModel{}, err
+	}
 	return model, nil
 }
 
 // UpdatePriority updates a work-item priority.
 func UpdatePriority(model UpdatePriorityModel) error {
 	queryM := msql.Model(define.TableWorkItemPriorities, define.Postgres)
-	row, err := queryM.Field(`id`).Where2([][]string{
+	row, err := queryM.Field(`id,key,name`).Where2([][]string{
 		{`admin_id`, cast.ToString(model.AdminId)},
 		{`workspace_id`, model.WsId},
 		{`type_key`, model.TypeKey},
@@ -498,19 +550,29 @@ func UpdatePriority(model UpdatePriorityModel) error {
 	if len(row) == 0 {
 		return fmt.Errorf("priority not found: %d", model.PriorityId)
 	}
-	now := tool.Time2Int()
+	updates := msql.Datas{
+		`name`:       model.Name,
+		`color`:      model.Color,
+		`updated_at`: tool.Time2Int(),
+	}
+	if model.SortOrder != nil {
+		updates[`sort_order`] = *model.SortOrder
+	}
+	if row[`key`] == "" {
+		// 改名前补齐旧模板丢失的键，保留预置来源。
+		key := builtinPriorityKey(model.TypeKey, "", row[`name`])
+		if key == "" {
+			key = "priority_" + strconv.Itoa(model.PriorityId)
+		}
+		updates[`key`] = key
+	}
 	updateM := msql.Model(define.TableWorkItemPriorities, define.Postgres)
 	_, err = updateM.Where2([][]string{
 		{`admin_id`, cast.ToString(model.AdminId)},
 		{`workspace_id`, model.WsId},
 		{`type_key`, model.TypeKey},
 		{`id`, cast.ToString(model.PriorityId)},
-	}).Update(msql.Datas{
-		`name`:       model.Name,
-		`color`:      model.Color,
-		`sort_order`: model.SortOrder,
-		`updated_at`: now,
-	})
+	}).Update(updates)
 	if err != nil {
 		logs.Error("sql:%s, err:%s", updateM.GetLastSql(), err.Error())
 		return err
@@ -520,53 +582,63 @@ func UpdatePriority(model UpdatePriorityModel) error {
 
 // DeletePriority deletes a work-item priority.
 func DeletePriority(model DeletePriorityModel) error {
-	queryM := msql.Model(define.TableWorkItemPriorities, define.Postgres)
-	row, err := queryM.Field(`id`).Where2([][]string{
-		{`admin_id`, cast.ToString(model.AdminId)},
-		{`workspace_id`, model.WsId},
-		{`type_key`, model.TypeKey},
-		{`id`, cast.ToString(model.PriorityId)},
-	}).Find()
+	tx, err := msql.Begin(define.Postgres)
 	if err != nil {
-		logs.Error("sql:%s, err:%s", queryM.GetLastSql(), err.Error())
 		return err
 	}
-	if len(row) == 0 {
+	defer func() { _ = tx.Rollback() }()
+	if _, err := lockStatusActionWorkspace(tx, model.AdminId, cast.ToInt(model.WsId), true); err != nil {
+		return err
+	}
+	scope := " WHERE admin_id=$1 AND workspace_id=$2 AND type_key=$3 AND id=$4"
+	rows, err := statusActionRows(tx, "SELECT key,name FROM "+define.TableWorkItemPriorities+scope+" FOR UPDATE",
+		model.AdminId, model.WsId, model.TypeKey, model.PriorityId)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
 		return fmt.Errorf("priority not found: %d", model.PriorityId)
 	}
-	delM := msql.Model(define.TableWorkItemPriorities, define.Postgres)
-	if _, err := delM.Where2([][]string{
-		{`admin_id`, cast.ToString(model.AdminId)},
-		{`workspace_id`, model.WsId},
-		{`type_key`, model.TypeKey},
-		{`id`, cast.ToString(model.PriorityId)},
-	}).Delete(); err != nil {
-		logs.Error("sql:%s, err:%s", delM.GetLastSql(), err.Error())
+	if builtinPriorityKey(model.TypeKey, rows[0][`key`], rows[0][`name`]) != "" {
+		return ErrBuiltinWorkflowItem
+	}
+	if _, err := statusActionExec(tx, "DELETE FROM "+define.TableWorkItemPriorities+scope,
+		model.AdminId, model.WsId, model.TypeKey, model.PriorityId); err != nil {
 		return err
 	}
-	return nil
+	return tx.Commit()
 }
 
 // ResetPriorities restores the priorities of the given type under a workspace to the built-in defaults.
 // It clears user-created/modified priorities of that type and re-seeds the built-in priorities.
 func ResetPriorities(model ResetPrioritiesModel) error {
-	now := tool.Time2Int()
-	delM := msql.Model(define.TableWorkItemPriorities, define.Postgres)
-	if _, err := delM.Where2([][]string{
-		{`admin_id`, cast.ToString(model.AdminId)},
-		{`workspace_id`, model.WsId},
-		{`type_key`, model.TypeKey},
-	}).Delete(); err != nil {
-		logs.Error("reset priorities delete sql:%s, err:%s", delM.GetLastSql(), err.Error())
+	tx, err := msql.Begin(define.Postgres)
+	if err != nil {
 		return err
 	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := lockStatusActionWorkspace(tx, model.AdminId, cast.ToInt(model.WsId), true); err != nil {
+		return err
+	}
+	scope := " WHERE admin_id=$1 AND workspace_id=$2 AND type_key=$3"
+	if _, err := statusActionExec(tx, "DELETE FROM "+define.TableWorkItemPriorities+scope,
+		model.AdminId, model.WsId, model.TypeKey); err != nil {
+		return err
+	}
+	now := tool.Time2Int()
 	for _, priority := range presetPriorities {
 		if priority.TypeKey != model.TypeKey {
 			continue
 		}
-		if err := ensureWorkspacePriority(model.AdminId, model.WsId, priority, now); err != nil {
+		if _, err := statusActionExec(tx, "INSERT INTO "+define.TableWorkItemPriorities+
+			" (admin_id,workspace_id,type_key,key,name,color,sort_order,is_default,created_at,updated_at)"+
+			" VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)",
+			model.AdminId, model.WsId, priority.TypeKey, priority.Key, priority.Name, priority.Color, priority.SortOrder, priority.IsDefault, now); err != nil {
 			return err
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
 	}
 	logs.Info("workspace [%s] %s priorities reset to default", model.WsId, model.TypeKey)
 	return nil

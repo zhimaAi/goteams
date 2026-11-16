@@ -57,41 +57,57 @@ Built-in agent skills, one-click installation, quick start. Seamlessly connects 
 ![Agent Collaboration](./assets/imgs/feature_7_en.png)
 ![Agent Collaboration](./assets/imgs/feature_8_en.png)
 
-## 🏢 Open-Source Edition Packaging Guide
+## 🏢 Open-Source Edition Installation
 
-Packaging runs on Windows and produces a self-extracting `.run` installer. See the [Installation & Operations Guide](docs/license_install.md) for unpacking, installation, upgrade, rollback, service management, logs, and uninstall.
+Docker (with Compose V2), Go, and Node.js are required. Build locally, then run the stack with Docker Compose; no installer script is needed.
 
 ### 1. Prerequisites
 
-- Windows with PowerShell 5.1 or later.
-- Git, Go, Node.js, and npm on PATH; the Go version must satisfy `go.mod` (1.25.1 minimum at present); the frontend uses Vite 5, so Node.js 18 or later is required.
-- The offline package and `-Both` require a working Docker daemon and Linux amd64 images.
-- The first build needs network access for dependencies. Run packaging from the repository root of the target branch: the script uses the current `HEAD` as the build identity, and uncommitted changes are compiled in as well.
+- Docker 20.10+ with Compose V2 (`docker compose version` works).
+- Go version satisfying `go.mod` (1.25.1 minimum at present).
+- Node.js 18+ and npm (the frontend uses Vite 5).
+- Network access for Go/npm dependencies on the first build.
 
-### 2. Run Packaging
+### 2. Configure
 
-Run these commands from the repository root in PowerShell:
+For the first run, copy `docker/.env.example` to `docker/.env`, then edit the configuration:
 
-```powershell
-# Standard package (pulls images online during installation)
-.\scripts\build-commercial-package.bat cn
-
-# Offline package (bundles all images)
-.\scripts\build-commercial-package.bat cn -Offline
-
-# Both package types for one version
-.\scripts\build-commercial-package.bat cn -Both
+```bash
+cp docker/.env.example docker/.env
 ```
 
-Double-clicking the `.bat` or passing no arguments prompts for the environment and package type. Output goes to `build/commercial/dist/`; both package types bundle Docker Engine, the Compose plugin, and systemd units.
+- `POSTGRES_PASSWORD` and `REDIS_PASSWORD` in `docker/.env` must match `[postgres].password` and `[redis].password` in `configs/goteams/config_pro.ini`; the repository defaults start out of the box, but production deployments should use custom passwords and update both places.
+- Set `[webservice].site_url` in `configs/goteams/config_pro.ini` to the public URL used in work-item links.
+- The default administrator is `admin / admin123456`; a password change is forced on first login.
+- Object storage, email, OAuth login, SSO, and session encryption are disabled by default; enable them as needed.
 
-### 3. Version Rules
+### 3. Build
 
-- The script holds an exclusive lock on `build/commercial/VERSION` and increments the patch number on every build. A reserved version is not rolled back if the build later fails; do not lower or reuse version numbers manually.
-- Use `-Both` to produce both package types for the same version; running the two builds separately yields two different versions.
-- `-MinUpgradeVersion` defaults to `v0.0.1`; tighten it explicitly only when release policy requires limiting upgrade sources.
+Run from the repository root:
 
-Run `make goteams` to build the frontend first, then compile the backend (embeds the `cn` configuration).
+```bash
+make goteams
+```
+
+This builds the frontend (`web/dist.tar.gz`) and the Linux amd64 backend (`build/goteams`). Without GNU Make, run the equivalent commands:
+
+```bash
+cd web && npm ci && npm run build && cd ..
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o build/goteams ./cmd/goteams
+```
+
+### 4. Run
+
+```bash
+cd docker
+docker compose --env-file .env up -d
+```
+
+Open `http://127.0.0.1:8080` (the port is controlled by `WEB_PORT` in `docker/.env`). View logs with `docker compose logs -f goteams`; stop with `docker compose down`.
+
+### 5. Upgrade
+
+Pull the new code, run `make goteams` again, then run `docker compose --env-file .env up -d`. Data volumes are preserved and the database does not need to be re-initialized.
 
 ## 💻 Tech Stack
 

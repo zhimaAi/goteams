@@ -18,12 +18,8 @@ func RegWorkspaceRoutes(r lib_web.Route) {
 	r[http.MethodGet][`/api/workspace-types`] = wrapAction(withPerm("project:create"), controller.ListWorkspaceTypes)
 	r[http.MethodPost][`/api/workspace-types`] = wrapAction(withPerm("project:create"), controller.CreateWorkspaceType)
 	r[http.MethodGet][`/api/workspace-templates`] = wrapAction(withPerm("project:create"), controller.ListWorkspaceTemplates)
-	// The export is token-gated inside the controller (a signed, short-lived `?token=`), not
-	// session-gated: a browser address bar and a headless curl can attach a query string but not
-	// the Authorization header. A deployment without a template account answers 403 too.
 	// The icon endpoint stays public on purpose: the create-project dialog loads the card images as
 	// plain <img> requests, which cannot carry the Authorization header.
-	r[http.MethodGet][`/api/workspace-templates/export`] = controller.ExportWorkspaceTemplates
 	r[http.MethodGet][`/api/workspace-templates/:wsId/icon`] = controller.GetWorkspaceTemplateIcon
 	r[http.MethodGet][`/api/workspaces/:wsId`] = wrapAction(withWorkspaceMember(), controller.GetWorkspace)
 	r[http.MethodGet][`/api/workspaces/:wsId/access`] = wrapAction(auth, controller.GetWorkspaceAccess)

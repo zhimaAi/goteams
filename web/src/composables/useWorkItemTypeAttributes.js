@@ -22,12 +22,11 @@ const EMPTY_DATA = { requirement: null, defect: null };
 const attrState = reactive(new Map());
 
 function recordOf(key) {
-  let record = attrState.get(key);
-  if (!record) {
-    record = { data: { ...EMPTY_DATA }, promise: null };
-    attrState.set(key, record);
-  }
-  return record;
+  const record = attrState.get(key);
+  if (record) return record;
+
+  attrState.set(key, { data: { ...EMPTY_DATA }, promise: null });
+  return attrState.get(key);
 }
 
 // ensureWorkItemTypeAttributes loads and caches both types' attributes for a workspace.
@@ -40,7 +39,10 @@ export function ensureWorkItemTypeAttributes(wsId) {
     .then((rows) => {
       const data = { requirement: null, defect: null };
       for (const row of rows || []) {
-        if (row && (row.type_key === "requirement" || row.type_key === "defect")) {
+        if (
+          row &&
+          (row.type_key === "requirement" || row.type_key === "defect")
+        ) {
           data[row.type_key] = row;
         }
       }
@@ -72,21 +74,33 @@ export function cacheWorkItemAttribute(wsId, typeKey, attr) {
 export function useWorkItemTypeAttributes(wsId) {
   const { t } = useI18n();
   const key = computed(() => {
-    const raw = wsId && typeof wsId === "object" && "value" in wsId ? wsId.value : wsId;
+    const raw =
+      wsId && typeof wsId === "object" && "value" in wsId ? wsId.value : wsId;
     return String(raw ?? "");
   });
-  watch(key, (k) => {
-    if (k) ensureWorkItemTypeAttributes(k);
-  }, { immediate: true });
+  watch(
+    key,
+    (k) => {
+      if (k) ensureWorkItemTypeAttributes(k);
+    },
+    { immediate: true },
+  );
 
-  const attributes = computed(() => attrState.get(key.value)?.data || EMPTY_DATA);
+  const attributes = computed(
+    () => attrState.get(key.value)?.data || EMPTY_DATA,
+  );
   const attrOf = (typeKey) => attributes.value[typeKey] || null;
   const labelKeyOf = (typeKey) =>
-    typeKey === "defect" ? DEFAULT_TYPE_LABEL_KEYS.defect : DEFAULT_TYPE_LABEL_KEYS.requirement;
+    typeKey === "defect"
+      ? DEFAULT_TYPE_LABEL_KEYS.defect
+      : DEFAULT_TYPE_LABEL_KEYS.requirement;
 
-  const displayName = (typeKey) => attrOf(typeKey)?.name || t(labelKeyOf(typeKey));
-  const iconText = (typeKey) => attrOf(typeKey)?.icon_text || t(labelKeyOf(typeKey));
-  const iconColor = (typeKey) => attrOf(typeKey)?.icon_color || DEFAULT_TYPE_ICON_COLORS[typeKey] || "";
+  const displayName = (typeKey) =>
+    attrOf(typeKey)?.name || t(labelKeyOf(typeKey));
+  const iconText = (typeKey) =>
+    attrOf(typeKey)?.icon_text || t(labelKeyOf(typeKey));
+  const iconColor = (typeKey) =>
+    attrOf(typeKey)?.icon_color || DEFAULT_TYPE_ICON_COLORS[typeKey] || "";
 
   return { attributes, attrOf, displayName, iconText, iconColor };
 }

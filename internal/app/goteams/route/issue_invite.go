@@ -16,7 +16,10 @@ func RegIssueInviteRoutes(r lib_web.Route) {
 	r[http.MethodPatch][`/api/workspaces/:wsId/issue-invite/config`] = wrapAction(withPerm(define.PermissionTicketManage), controller.UpdateIssueInviteConfig)
 	r[http.MethodPost][`/api/workspaces/:wsId/issue-invite/theme-image`] = wrapAction(withPerm(define.PermissionTicketManage), controller.UploadIssueInviteThemeImage)
 	r[http.MethodGet][`/api/workspaces/:wsId/issue-invite/share`] = wrapAction(withPerm(define.PermissionTicketCopyLink), controller.GetIssueInviteShare)
-	r[http.MethodGet][`/api/workspaces/:wsId/issue-invite/templates`] = wrapAction(withAnyPerm(`workspace:view`, define.PermissionTicketCopyLink, define.PermissionTicketManage), controller.ListIssueInviteTemplates)
+	r[http.MethodGet][`/api/workspaces/:wsId/issue-invite/templates`] = wrapAction(templateManagementRead(
+		withAnyPerm(`workspace:view`, define.PermissionTicketCopyLink, define.PermissionTicketManage),
+		withPerm(define.PermissionTicketManage),
+	), controller.ListIssueInviteTemplates)
 	r[http.MethodPost][`/api/workspaces/:wsId/issue-invite/templates`] = wrapAction(withPerm(define.PermissionTicketManage), controller.CreateIssueInviteTemplate)
 	r[http.MethodPut][`/api/workspaces/:wsId/issue-invite/templates/order`] = wrapAction(withPerm(define.PermissionTicketManage), controller.ReorderIssueInviteTemplates)
 	r[http.MethodGet][`/api/workspaces/:wsId/issue-invite/templates/:templateId`] = wrapAction(withPerm(define.PermissionTicketManage), controller.GetIssueInviteTemplate)
