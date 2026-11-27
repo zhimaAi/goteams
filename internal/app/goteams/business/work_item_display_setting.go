@@ -31,7 +31,7 @@ var (
 	// ErrWorkItemDisplaySettingInvalid indicates an invalid display setting payload.
 	ErrWorkItemDisplaySettingInvalid = errors.New("invalid work item display setting")
 	detailBuiltinFieldKeys           = map[string]bool{
-		"status": true, "priority": true, "severity_id": true, "version": true, "category": true, "assignee": true,
+		"status": true, "priority": true, "severity_id": true, "responsible_ids": true, "version": true, "category": true, "assignee": true,
 		"planned_start_date": true, "planned_end_date": true,
 		"created_at": true, "created_by": true,
 		"estimated_work_hours": true, "work_progress": true,

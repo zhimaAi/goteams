@@ -290,6 +290,7 @@ function fieldDescriptor(field) {
 }
 
 function selectMode(field) {
+  if (["sla_status", "urge_status"].includes(field)) return undefined;
   const fieldType = fieldDescriptor(field)?.fieldType;
   return fieldType === CUSTOM_FIELD_TYPE.SELECT_SINGLE ||
     fieldType === CUSTOM_FIELD_TYPE.RADIO

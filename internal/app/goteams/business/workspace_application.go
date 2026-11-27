@@ -39,6 +39,8 @@ var workspaceAppDefinitions = []WorkspaceAppDefinition{
 	{AppKey: define.AppKeyGantt, Name: `app_gantt`, Description: `app_gantt_desc`},
 	{AppKey: define.AppKeyKnowledgeBase, Name: `app_knowledge_base`, Description: `app_knowledge_base_desc`},
 	{AppKey: define.AppKeyDashboard, Name: `app_dashboard`, Description: `app_dashboard_desc`},
+	{AppKey: define.AppKeyIssueStatistics, Name: `app_issue_statistics`, Description: `app_issue_statistics_desc`},
+	{AppKey: define.AppKeyReport, Name: `app_report`, Description: `app_report_desc`},
 	{AppKey: define.AppKeyIssue, Name: `app_issue_invite`, Description: `app_issue_invite_desc`},
 }
 
@@ -53,9 +55,12 @@ func GetWorkspaceAppDefinitions(issueWorkspace bool) []WorkspaceAppDefinition {
 	return defs
 }
 
-// 工单类型不提供缺陷和迭代；只过滤可用能力，不改写历史应用配置。
+// 统计仅提供给工单类型；只过滤可用能力，不改写历史应用配置。
 func workspaceAppAvailable(appKey string, issueWorkspace bool) bool {
-	return !issueWorkspace || (appKey != define.AppKeyDefect && appKey != define.AppKeyIteration)
+	if appKey == define.AppKeyIssueStatistics {
+		return issueWorkspace
+	}
+	return !issueWorkspace || (appKey != define.AppKeyDefect && appKey != define.AppKeyIteration && appKey != define.AppKeyReport)
 }
 
 // IsWorkspaceAppKeyRegistered reports whether the app key exists in the app directory.
@@ -167,9 +172,9 @@ func enabledWorkspaceApplicationKeys(apps []WorkspaceApplicationModel, issueWork
 
 // IsWorkspaceApplicationEnabled reports whether an app is enabled in a workspace.
 func IsWorkspaceApplicationEnabled(adminId, workspaceId int, appKey string) (bool, error) {
-	if !workspaceAppAvailable(appKey, true) {
+	if appKey == define.AppKeyIssueStatistics || !workspaceAppAvailable(appKey, true) {
 		issueWorkspace, err := IsIssueWorkspace(adminId, workspaceId)
-		if err != nil || issueWorkspace {
+		if err != nil || !workspaceAppAvailable(appKey, issueWorkspace) {
 			return false, err
 		}
 	}

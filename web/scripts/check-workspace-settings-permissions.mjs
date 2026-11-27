@@ -5,7 +5,7 @@ import * as vue from "vue";
 import dayjs from "dayjs";
 
 // Run real component handlers with API boundaries replaced, including live permission revocation.
-function panel(name, permissions) {
+function panel(name, permissions, apiOverrides = {}, props = { wsId: 3 }) {
   const { descriptor } = parse(
     readFileSync(
       new URL(`../src/views/workspace/settings/${name}.vue`, import.meta.url),
@@ -17,13 +17,16 @@ function panel(name, permissions) {
   const apis = new Proxy(
     {},
     {
-      get: (_, key) => async () => {
-        calls.push(key);
-        if (key === "listWorkspaceApplications")
-          return [{ app_key: "planning", enabled: 1 }];
-        if (key.startsWith("listAutomation")) return [];
-        return {};
-      },
+      get:
+        (_, key) =>
+        async (...args) => {
+          calls.push(key);
+          if (apiOverrides[key]) return apiOverrides[key](...args);
+          if (key === "listWorkspaceApplications")
+            return [{ app_key: "planning", enabled: 1 }];
+          if (key.startsWith("listAutomation")) return [];
+          return {};
+        },
     },
   );
   const modules = new Proxy(
@@ -31,7 +34,12 @@ function panel(name, permissions) {
     {
       get: (_, source) => {
         if (source === "vue")
-          return { ...vue, onMounted() {}, onBeforeUnmount() {} };
+          return {
+            ...vue,
+            onMounted() {},
+            onBeforeMount() {},
+            onBeforeUnmount() {},
+          };
         if (source === "dayjs") return { default: dayjs };
         if (source === "vue-i18n")
           return { useI18n: () => ({ t: (key) => key }) };
@@ -54,6 +62,7 @@ function panel(name, permissions) {
             Modal: {
               confirm: (config) => {
                 confirmation = config;
+                return { destroy() {} };
               },
             },
           };
@@ -78,7 +87,7 @@ function panel(name, permissions) {
     )
     .replace("export default", "return");
   const component = new Function("__modules", code)(modules);
-  const state = component.setup({ wsId: 3 }, { expose() {}, emit() {} });
+  const state = component.setup(props, { expose() {}, emit() {} });
   return { state, calls, confirm: () => confirmation };
 }
 
@@ -137,6 +146,117 @@ assert.deepEqual(market.calls, []);
 assert.equal(app.enabled, false);
 assert.equal(app.confirming, false);
 
+// Exercise the real satisfaction handlers with each grant combination.
+const satisfactionConfig = () => ({
+  enabled: true,
+  rating_mode: 2,
+  auto_status_ids: [1],
+  auto_creator_kinds: [1],
+  options: [
+    { key: "good", value: 2, label: "Good", tags: [{ key: "a", label: "A" }] },
+  ],
+});
+const settle = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+  await vue.nextTick();
+};
+const deferred = () => {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+};
+for (const grants of [
+  [],
+  ["satisfaction:view"],
+  ["satisfaction:manage"],
+  ["satisfaction:view", "satisfaction:manage"],
+]) {
+  const permissions = vue.reactive(new Set(grants));
+  const props = vue.reactive({ wsId: 3 });
+  let readPending;
+  let savePending;
+  const satisfaction = panel(
+    "SatisfactionTab",
+    permissions,
+    {
+      getSatisfactionConfig: () => readPending?.promise || satisfactionConfig(),
+      getWorkspaceMetadata: () => ({
+        requirement: { statuses: [{ id: 1, name: "Done" }] },
+      }),
+      listIssueInviteTemplates: () => [{ id: 2, name: "Template", enabled: 1 }],
+      saveSatisfactionConfig: () =>
+        savePending?.promise || satisfactionConfig(),
+    },
+    props,
+  );
+  const { state, calls } = satisfaction;
+  await settle();
+  assert.equal(state.canView.value, grants.length > 0);
+  assert.equal(state.canManage.value, grants.includes("satisfaction:manage"));
+  if (!grants.length) {
+    assert.deepEqual(calls, []);
+    assert.equal(state.config.value, null);
+    await state.save();
+    state.changeMode(3);
+    assert.equal(satisfaction.confirm(), undefined);
+    continue;
+  }
+  assert.equal(state.failed.value, false);
+  assert.equal(state.templates.value[0].value, 2);
+  calls.length = 0;
+  const option = state.config.value.options[0];
+  state.addTag(option);
+  state.removeTag(option, 0);
+  state.changeMode(3);
+  if (!state.canManage.value) {
+    assert.equal(option.tags.length, 1);
+    assert.equal(option.tags[0].key, "a");
+    assert.equal(satisfaction.confirm(), undefined);
+    await state.save();
+    assert.deepEqual(calls, []);
+  } else {
+    assert.ok(satisfaction.confirm());
+    await satisfaction.confirm().onOk();
+    assert.equal(state.config.value.rating_mode, 3);
+    await state.save();
+    assert.deepEqual(calls, ["saveSatisfactionConfig"]);
+    // A confirmation opened with management must not write after revocation.
+    state.changeMode(4);
+    const confirmation = satisfaction.confirm();
+    permissions.add("satisfaction:view");
+    permissions.delete("satisfaction:manage");
+    await settle();
+    confirmation.onOk();
+    assert.equal(state.config.value.rating_mode, 2);
+    calls.length = 0;
+    await state.save();
+    assert.deepEqual(calls, []);
+  }
+  // In-flight reads and writes must not restore data after losing access.
+  readPending = deferred();
+  const loading = state.load();
+  permissions.clear();
+  assert.equal(state.config.value, null);
+  readPending.resolve(satisfactionConfig());
+  await loading;
+  assert.equal(state.config.value, null);
+  assert.equal(state.loading.value, false);
+  // Switching space invalidates a save response from the previous space.
+  readPending = undefined;
+  permissions.add("satisfaction:manage");
+  await settle();
+  savePending = deferred();
+  const saving = state.save();
+  props.wsId = 4;
+  await settle();
+  savePending.resolve({ ...satisfactionConfig(), rating_mode: 5 });
+  await saving;
+  assert.equal(state.config.value.rating_mode, 2);
+}
+
 // Keep server read/write boundaries explicit; copy targets remain a management helper.
 const root = new URL("../../", import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), "utf8");
@@ -156,6 +276,8 @@ for (const key of [
   "automation:manage",
   "application_market:view",
   "application_market:manage",
+  "satisfaction:view",
+  "satisfaction:manage",
   "requirement:view",
   "defect:view",
 ]) {
@@ -166,7 +288,9 @@ for (const key of [
     `${board.match(/const canViewProjectSettings = computed\([\s\S]*?\n  \);/)[0]} return canViewProjectSettings.value;`,
   )(vue.computed, authStore);
   const expected =
-    key.startsWith("automation:") || key.startsWith("application_market:");
+    key.startsWith("automation:") ||
+    key.startsWith("application_market:") ||
+    key.startsWith("satisfaction:");
   assert.equal(entry, expected, `${key}: settings entry`);
   assert.equal(
     routePermissions.includes(key),
@@ -183,20 +307,41 @@ for (const key of [
 }
 for (const line of read("internal/app/goteams/route/automation.go")
   .split("\n")
-  .filter((line) => line.includes("wrapAction"))) {
+  .filter(
+    (line) => line.includes("wrapAction") && line.includes("automation:"),
+  )) {
   const expected =
-    line.includes("http.MethodGet") && !line.includes("/copy-targets")
+    line.includes("http.MethodGet") &&
+    !line.includes("/copy-targets") &&
+    !line.includes("/user-mappings")
       ? 'withAnyPerm("automation:view", "automation:manage")'
       : 'withPerm("automation:manage")';
   assert.ok(line.includes(expected), line);
 }
 const catalog = read("internal/app/goteams/controller/enterprise.go");
-for (const group of ["GroupKeyAutomation", "GroupKeyApplicationMarket"]) {
+for (const group of [
+  "GroupKeyAutomation",
+  "GroupKeyApplicationMarket",
+  "GroupKeySatisfaction",
+]) {
   assert.ok(
-    catalog.includes(`permission.${group},`),
+    catalog.includes(`permission.${group}`),
     `${group} must be configurable`,
   );
 }
+const satisfactionRoutes = read("internal/app/goteams/route/satisfaction.go");
+assert.match(
+  satisfactionRoutes,
+  /withAnyPerm\("satisfaction:view", "satisfaction:manage"\), controller.GetSatisfactionConfig/,
+);
+assert.match(
+  satisfactionRoutes,
+  /withPerm\("satisfaction:manage"\), controller.SaveSatisfactionConfig/,
+);
+assert.match(
+  catalog,
+  /slices.Insert\(projectGroupKeys, automationIndex\+1, permission.GroupKeySLA, permission.GroupKeyWarning, permission.GroupKeyAutoAssignment, permission.GroupKeySatisfaction\)/,
+);
 const routes = read("internal/app/goteams/route/workspace_application.go");
 assert.match(
   routes,

@@ -30,6 +30,7 @@
         v-model:severity-id="severityId"
         v-model:version-id="versionId"
         v-model:assignee-ids="assigneeIds"
+        v-model:responsible-ids="responsibleIds"
         v-model:planned-start-date="plannedStartDate"
         v-model:planned-end-date="plannedEndDate"
         v-model:estimated-work-hours="estimatedWorkHours"
@@ -88,6 +89,7 @@ const {
   severityId,
   versionId,
   assigneeIds,
+  responsibleIds,
   plannedStartDate,
   plannedEndDate,
   estimatedWorkHours,

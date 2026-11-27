@@ -454,3 +454,48 @@ func DashboardSLAMetricOptions(metricType string, ids []int, comparison bool, li
 	}
 	return ErrDashboardMetricInvalid
 }
+
+// IssueStatisticsQuery 校验固定统计页的视图、筛选值与分页上限。
+func IssueStatisticsQuery(view, dimension, preset, from, to string, assigneeId int, priorityId, categoryId *int, roleIds []int, page, size int) error {
+	switch view {
+	case "summary", "dimension":
+		if dimension != "priority" && dimension != "category" {
+			return ErrDashboardMetricInvalid
+		}
+	case "details":
+		switch dimension {
+		case "time", "rule", "category", "member":
+		default:
+			return ErrDashboardMetricInvalid
+		}
+	case "risk":
+	default:
+		return ErrDashboardMetricInvalid
+	}
+	switch preset {
+	case "today", "week", "month30", "month":
+		if from != "" || to != "" {
+			return ErrDashboardMetricInvalid
+		}
+	case "custom":
+		if len(from) != 10 || len(to) != 10 {
+			return ErrDashboardMetricInvalid
+		}
+	default:
+		return ErrDashboardMetricInvalid
+	}
+	if page < 1 || page > 1000000 || size < 1 || size > 100 || assigneeId < 0 ||
+		(priorityId != nil && *priorityId < 0) || (categoryId != nil && *categoryId < 0) ||
+		len(roleIds) > 100 || dashboardPositiveUniqueIDs(roleIds) != nil {
+		return ErrDashboardMetricInvalid
+	}
+	return nil
+}
+
+// IssueStatisticsThreshold 校验临时查询的临界阈值，未提供时沿用默认值。
+func IssueStatisticsThreshold(minutes *int) error {
+	if minutes != nil && (*minutes < 1 || *minutes > 365*24*60) {
+		return ErrDashboardMetricInvalid
+	}
+	return nil
+}

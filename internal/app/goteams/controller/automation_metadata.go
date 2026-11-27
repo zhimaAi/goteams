@@ -285,7 +285,7 @@ func toAutomationMetadataGroupResponse(model business.WorkspaceMetadataGroupMode
 		response.Priorities = append(response.Priorities, automationMetadataPriorityResponse(item))
 	}
 	for _, item := range model.FieldConfigs {
-		response.FieldConfigs = append(response.FieldConfigs, automationMetadataFieldConfigResponse(item))
+		response.FieldConfigs = append(response.FieldConfigs, automationMetadataFieldConfigResponse{Key: item.Key, Label: item.Label, Enabled: item.Enabled, Editable: item.Editable, Locked: item.Locked, SortOrder: item.SortOrder})
 	}
 	for _, item := range model.CustomFields {
 		options := make([]automationMetadataCustomFieldOptionResponse, 0, len(item.Options))

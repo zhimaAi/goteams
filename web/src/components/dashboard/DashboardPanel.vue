@@ -525,8 +525,6 @@ const dashboardTemplateOptions = computed(() => [
   { value: "", label: t("dashboard_workload_default_template") },
   { value: "workload", label: t("dashboard_chart_workload") },
   { value: "category", label: t("dashboard_chart_category") },
-  { value: "sla_stats", label: t("dashboard_template_sla_stats") },
-  { value: "sla_risk", label: t("dashboard_template_sla_risk") },
 ]);
 const dialogSaving = ref(false);
 let sidebarSortable = null;

@@ -126,7 +126,7 @@ var issueInviteNoLinkParamKeys = map[string]bool{`id`: true, `status`: true}
 // 表单固定的必填项，关掉就没有内容可提交了。
 var issueInviteAlwaysShownFieldKeys = map[string]bool{`title`: true, `description`: true}
 
-// issueInviteFixedDescription 是公开表单的工单内容。它不在属性字段里，但每次都要有，
+// issueInviteFixedDescription 是公开表单固定必填的工单内容，独立于字段编辑角色配置，
 // 老模板没存过它就由这里补上，默认排在标题后面，显示与必填都由这里钉死。
 func issueInviteFixedDescription() TemplateFieldModel {
 	shown := true
@@ -166,7 +166,7 @@ func issueInviteEnabledFields(adminID, workspaceID int, typeKey string) ([]Templ
 	fields := make([]TemplateFieldModel, 0, len(configs.Items)+1)
 	descriptionPlaced := false
 	for _, config := range configs.Items {
-		if config.Enabled != 1 {
+		if config.Enabled != 1 || config.Key == `description` {
 			continue
 		}
 		fields = append(fields, TemplateFieldModel{

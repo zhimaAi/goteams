@@ -75,13 +75,12 @@ import {
   getRequirementHistory,
   restoreRequirementHistory,
 } from "@/api/workspace";
-import { useAuthStore } from "@/stores/auth";
 import { formatLocalDate } from "@/utils/date";
+import { listFieldConfigs } from "@/api/workspace";
 import { buildDescriptionDiff } from "@/utils/descriptionDiff";
 
 const route = useRoute();
 const { t } = useI18n();
-const authStore = useAuthStore();
 
 const wsId = computed(() => route.params.wsId);
 const workItemId = computed(() => route.params.id);
@@ -90,6 +89,7 @@ const historyId = computed(() => route.params.historyId);
 const loading = ref(true);
 const loadFailed = ref(false);
 const detail = ref({});
+const descriptionEditable = ref(false);
 const restoring = ref("");
 
 const panes = computed(() => [
@@ -138,18 +138,18 @@ const changeTimeText = computed(() => {
   return relative ? `${absolute}(${relative})` : absolute;
 });
 
-// Restoring rewrites the work item, so it needs the edit permission of the item type; without it
-// the buttons stay hidden and the backend still rejects the call.
+// Description restores use the same server-projected field capability as the editor.
 const canRestore = computed(() => {
   if (detail.value.field_name !== "description") return false;
   const type = detail.value.work_item_type;
   if (type !== "requirement" && type !== "defect") return false;
-  return authStore.hasPermission(`${type}:edit`);
+  return descriptionEditable.value;
 });
 
 async function loadDetail() {
   loading.value = true;
   loadFailed.value = false;
+  descriptionEditable.value = false;
   try {
     const result = await getRequirementHistory(
       wsId.value,
@@ -157,6 +157,13 @@ async function loadDetail() {
       historyId.value,
     );
     detail.value = result || {};
+    const fields = await listFieldConfigs(
+      wsId.value,
+      detail.value.work_item_type,
+    );
+    descriptionEditable.value = (fields || []).some(
+      (field) => field.key === "description" && field.can_edit === true,
+    );
   } catch {
     loadFailed.value = true;
   } finally {

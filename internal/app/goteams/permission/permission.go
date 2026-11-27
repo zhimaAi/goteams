@@ -55,14 +55,19 @@ const (
 	GroupKeyStorage           = "storage"
 	GroupKeySso               = "sso"
 	GroupKeyPersonalization   = "personalization"
+	GroupKeyAutoAssignment    = "workspace_settings_auto_assignment"
 	GroupKeyAutomation        = "project_settings_automation"
+	GroupKeyWarning           = "workspace_settings_warning"
 	GroupKeySLA               = "workspace_settings_sla"
+	GroupKeySatisfaction      = "workspace_settings_satisfaction"
 	GroupKeyApplicationMarket = "workspace_settings_applications"
 	GroupKeyPlanning          = "planning"
 	GroupKeyPipeline          = "pipeline"
 	GroupKeyKnowledgeBase     = "kb"
 	GroupKeyExternalNotify    = "external_notification"
 	GroupKeyDashboard         = "dashboard"
+	GroupKeyReport            = "report"
+	GroupKeyIssueStatistics   = "issue_statistics"
 )
 
 // ======================== All Permission Hardcoded Definitions ========================
@@ -70,8 +75,11 @@ const (
 // AllPermissions is a flat list of all permissions (for key → Permission lookup).
 // The Name field is an i18n key, corresponding to perm_xxx entries in locale_*.ini.
 var AllPermissions = []Permission{
+	{Key: "warning_notification:view", Name: "perm_warning_view", Group: GroupKeyWarning},
+	{Key: "warning_notification:manage", Name: "perm_warning_manage", Group: GroupKeyWarning},
 	{Key: "sla:view", Name: "perm_sla_view", Group: GroupKeySLA},
 	{Key: "sla:manage", Name: "perm_sla_manage", Group: GroupKeySLA},
+	{Key: "issue_statistics:view", Name: "perm_issue_statistics_view", Group: GroupKeyIssueStatistics},
 	// ---- Team Work ----
 	{Key: "team_work:view_today", Name: "perm_team_work_view_today", Group: GroupKeyTeamWork},
 	{Key: "team_work:view_yesterday", Name: "perm_team_work_view_yesterday", Group: GroupKeyTeamWork},
@@ -164,6 +172,8 @@ var AllPermissions = []Permission{
 	{Key: "application_market:manage", Name: "perm_application_market_manage", Group: GroupKeyApplicationMarket},
 
 	// ---- Automation ----
+	{Key: "auto_assignment:view", Name: "perm_auto_assignment_view", Group: GroupKeyAutoAssignment},
+	{Key: "auto_assignment:manage", Name: "perm_auto_assignment_manage", Group: GroupKeyAutoAssignment},
 	{Key: "automation:view", Name: "perm_automation_view", Group: GroupKeyAutomation},
 	{Key: "automation:manage", Name: "perm_automation_manage", Group: GroupKeyAutomation},
 
@@ -191,9 +201,15 @@ var AllPermissions = []Permission{
 	{Key: "dashboard:view", Name: "perm_dashboard_view", Group: GroupKeyDashboard},
 	{Key: "dashboard:create", Name: "perm_dashboard_create", Group: GroupKeyDashboard},
 
+	{Key: "report:view", Name: "perm_report_view", Group: GroupKeyReport},
+	{Key: "report:generate", Name: "perm_report_generate", Group: GroupKeyReport},
+	{Key: "report:export", Name: "perm_report_export", Group: GroupKeyReport},
+
 	// ---- Issue Invitation ----
 	{Key: "ticket:copy_link", Name: "perm_ticket_copy_link", Group: GroupKeyTicket},
 	{Key: "ticket:manage", Name: "perm_ticket_manage", Group: GroupKeyTicket},
+	{Key: "satisfaction:view", Name: "perm_satisfaction_view", Group: GroupKeySatisfaction},
+	{Key: "satisfaction:manage", Name: "perm_satisfaction_manage", Group: GroupKeySatisfaction},
 }
 
 // PermissionMap provides fast lookup: key → Permission.
@@ -356,6 +372,15 @@ var AllGroups = []Group{
 		},
 	},
 	{
+		Key:  GroupKeyReport,
+		Name: "perm_group_report",
+		Permissions: []Permission{
+			PermissionMap["report:view"],
+			PermissionMap["report:generate"],
+			PermissionMap["report:export"],
+		},
+	},
+	{
 		Key:  GroupKeyTicket,
 		Name: "perm_group_ticket",
 		Permissions: []Permission{
@@ -438,9 +463,23 @@ var AllGroups = []Group{
 		},
 	},
 	{
+		Key: GroupKeyWarning, Name: "perm_group_warning", Permissions: []Permission{PermissionMap["warning_notification:view"], PermissionMap["warning_notification:manage"]},
+	},
+	{
+		Key: GroupKeyAutoAssignment, Name: "perm_group_auto_assignment", Permissions: []Permission{PermissionMap["auto_assignment:view"], PermissionMap["auto_assignment:manage"]},
+	},
+	{
 		Key:         GroupKeySLA,
 		Name:        "perm_group_sla",
 		Permissions: []Permission{PermissionMap["sla:view"], PermissionMap["sla:manage"]},
+	},
+	{
+		Key:         GroupKeyIssueStatistics,
+		Name:        "perm_group_issue_statistics",
+		Permissions: []Permission{PermissionMap["issue_statistics:view"]},
+	},
+	{
+		Key: GroupKeySatisfaction, Name: "perm_group_satisfaction", Permissions: []Permission{PermissionMap["satisfaction:view"], PermissionMap["satisfaction:manage"]},
 	},
 	{
 		Key:  GroupKeyApplicationMarket,
@@ -588,13 +627,17 @@ var PresetRoles = []PresetRole{
 			"requirement_setting:attribute",
 			"defect_setting:field", "defect_setting:status", "defect_setting:priority",
 			"automation:view", "automation:manage",
+			"auto_assignment:view", "auto_assignment:manage",
 			"sla:view", "sla:manage",
+			"issue_statistics:view",
+			"warning_notification:view", "warning_notification:manage",
 			"application_market:view", "application_market:manage",
 			"defect_setting:attribute",
 			"planning:view", "planning:edit",
 			"kb:view", "kb:create", "kb:manage",
 			"dashboard:view", "dashboard:create",
-			"ticket:copy_link", "ticket:manage",
+			"report:view", "report:generate", "report:export",
+			"ticket:copy_link", "ticket:manage", "satisfaction:view", "satisfaction:manage",
 		},
 	},
 	{

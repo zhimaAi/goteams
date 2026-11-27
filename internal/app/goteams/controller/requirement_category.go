@@ -84,7 +84,7 @@ func AssignRequirementCategory(c *gin.Context) {
 		c.JSON(http.StatusOK, define.Response{Code: define.CodeSuccess, Message: lib_i18n.Show(lang, define.MsgSuccess)})
 	case errors.Is(err, business.ErrRequirementNotFound):
 		abortNotFound(c, lib_i18n.Show(lang, define.MsgRequirementNotFound))
-	case errors.Is(err, business.ErrRequirementCategoryAssignmentForbidden):
+	case errors.Is(err, business.ErrRequirementCategoryAssignmentForbidden), errors.Is(err, business.ErrFieldEditForbidden):
 		abortForbidden(c, lib_i18n.Show(lang, define.MsgForbidden))
 	case errors.Is(err, business.ErrRequirementCategoryAssignmentInvalid):
 		abortBadRequest(c, lib_i18n.Show(lang, define.MsgRequirementCategoryAssignmentInvalid), stage, err)

@@ -81,6 +81,7 @@
         <a-input
           v-if="editingTitle"
           v-model:value="titleDraft"
+          :disabled="savingTitle"
           size="large"
           class="detail-title-input"
           autofocus
@@ -90,8 +91,8 @@
         <span
           v-else
           class="detail-title-text"
-          :class="{ editable: canEdit }"
-          @click="canEdit && (editingTitle = true)"
+          :class="{ editable: fieldEditable(detail.type, 'title') }"
+          @click="fieldEditable(detail.type, 'title') && (editingTitle = true)"
         >
           {{ titleDisplay }}
         </span>
@@ -157,7 +158,10 @@
             <DownOutlined />
           </a-button>
         </a-tooltip>
-        <a-tooltip v-if="canEdit" :title="$t('requirement_fullscreenEdit')">
+        <a-tooltip
+          v-if="fieldEditable(detail.type, 'description')"
+          :title="$t('requirement_fullscreenEdit')"
+        >
           <a-button
             type="text"
             class="detail-action-button"
@@ -307,6 +311,7 @@ const {
   displayName,
   saveProperty,
   editingTitle,
+  savingTitle,
   descriptionEditing,
   titleDraft,
   titleDisplay,

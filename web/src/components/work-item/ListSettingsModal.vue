@@ -207,6 +207,7 @@ const props = defineProps({
   // Planning has no detail page, so the preview mode is hidden; the locked index column is shown first.
   hidePreviewMode: { type: Boolean, default: false },
   hideViewMode: { type: Boolean, default: false },
+  scopedPreviewMode: { type: Boolean, default: false },
   showRowIndex: { type: Boolean, default: false },
 });
 const emit = defineEmits(["update:open", "change", "order-changed"]);
@@ -273,6 +274,25 @@ const effectiveFields = computed(() => {
     result.splice(priorityIndex + 1, 0, withVisible(severity));
     systemByKey.delete(severity.preferenceKey);
   }
+  // Insert newly available time columns by their default anchor without moving saved columns.
+  for (const [key, anchorKey] of [
+    ["builtin:started_at", "builtin:estimated_work_hours"],
+    ["builtin:ended_at", "builtin:started_at"],
+  ]) {
+    const field = systemByKey.get(key);
+    let anchorIndex = result.findIndex(
+      (item) => item.preferenceKey === anchorKey,
+    );
+    if (anchorIndex < 0 && key === "builtin:ended_at") {
+      anchorIndex = result.findIndex(
+        (item) => item.preferenceKey === "builtin:estimated_work_hours",
+      );
+    }
+    if (field && anchorIndex >= 0) {
+      result.splice(anchorIndex + 1, 0, withVisible(field));
+      systemByKey.delete(key);
+    }
+  }
   result.push(...[...systemByKey.values()].map(withVisible));
   return result;
 });
@@ -330,8 +350,9 @@ function loadPreferences() {
   preferences.boardColors = {};
   const scopedStored = readListPreferences(scopedStorageKey());
   const globalStored = readListPreferences(globalStorageKey());
-  const storedPreviewMode =
-    globalStored.previewMode ?? scopedStored.previewMode;
+  const storedPreviewMode = props.scopedPreviewMode
+    ? scopedStored.previewMode
+    : (globalStored.previewMode ?? scopedStored.previewMode);
   const storedViewMode = globalStored.viewMode ?? scopedStored.viewMode;
   if (["drawer", "modal", "window"].includes(storedPreviewMode)) {
     preferences.previewMode = storedPreviewMode;
@@ -354,7 +375,7 @@ function loadPreferences() {
   // Migrate the current list's legacy modes once, then share them across all list settings.
   if (
     globalStorageKey() &&
-    (globalStored.previewMode === undefined ||
+    ((!props.scopedPreviewMode && globalStored.previewMode === undefined) ||
       (!props.hideViewMode && globalStored.viewMode === undefined))
   ) {
     saveGlobalPreferences();
@@ -399,6 +420,9 @@ function syncCurrentPreferences() {
 function savePreferences() {
   saveGlobalPreferences();
   writeScopedListPreferences(props.userId, props.wsId, props.typeKey, {
+    ...(props.scopedPreviewMode
+      ? { previewMode: preferences.previewMode }
+      : {}),
     fields: preferences.fields,
     boardStatuses: preferences.boardStatuses,
     boardSort: preferences.boardSort,
@@ -408,9 +432,11 @@ function savePreferences() {
 }
 
 function saveGlobalPreferences() {
-  const patch = { previewMode: preferences.previewMode };
+  const patch = {};
+  if (!props.scopedPreviewMode) patch.previewMode = preferences.previewMode;
   if (!props.hideViewMode) patch.viewMode = preferences.viewMode;
-  writeGlobalListPreferences(props.userId, patch);
+  if (Object.keys(patch).length)
+    writeGlobalListPreferences(props.userId, patch);
 }
 
 function persistBoardStatuses(statuses) {

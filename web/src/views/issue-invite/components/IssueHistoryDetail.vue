@@ -240,6 +240,14 @@
               }}</span>
             </button>
           </a-tooltip>
+          <SatisfactionPanel
+            :requirement-id="detail.requirement_id"
+            :invite-key="inviteKey"
+            :openid="openid"
+            :lang="lang"
+            presentation="action"
+            @open="emit('evaluate')"
+          />
         </div>
       </div>
     </section>
@@ -324,6 +332,7 @@
 </template>
 
 <script setup>
+import SatisfactionPanel from "@/components/satisfaction/SatisfactionPanel.vue";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { message } from "ant-design-vue";
@@ -351,7 +360,7 @@ const props = defineProps({
 });
 
 // 撤回、催单、改并重提都由页面去调接口，这里只负责发起
-const emit = defineEmits(["recall", "urge", "edit"]);
+const emit = defineEmits(["recall", "urge", "edit", "evaluate"]);
 
 const { t } = useI18n();
 
@@ -591,7 +600,7 @@ const urgeHint = computed(() => {
 
 .issue-history-detail {
   // 给底部固定操作栏留出空间
-  padding: 12px 16px 76px;
+  padding: 12px 16px calc(100px + env(safe-area-inset-bottom, 0px));
 
   &__card {
     background: #fff;
@@ -959,7 +968,9 @@ const urgeHint = computed(() => {
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    padding: 2px 12px;
+    flex: 1;
+    min-width: 0;
+    padding: 2px 4px;
     background: transparent;
     border: 0;
     cursor: pointer;
@@ -999,7 +1010,9 @@ const urgeHint = computed(() => {
     font-size: 13px;
     line-height: 20px;
     color: #1d2129;
-    white-space: nowrap;
+    white-space: normal;
+    text-align: center;
+    overflow-wrap: anywhere;
   }
 }
 

@@ -141,9 +141,10 @@ async function loadProjectFields(typeKey) {
     ]);
     const items = [];
     for (const config of configs || []) {
-      if (Number(config.enabled) !== 1) continue;
+      if (Number(config.enabled) !== 1 || config.key === "description")
+        continue;
       items.push({ field_key: config.key, required: config.key === "title" });
-      // 描述不在属性字段里，公开表单的工单内容固定要它，跟在标题后面
+      // Public invitation content remains required and appears once after the title.
       if (config.key === "title") {
         items.push({ field_key: "description", required: true });
       }

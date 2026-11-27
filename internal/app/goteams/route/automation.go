@@ -9,6 +9,8 @@ import (
 
 // RegAutomationRoutes registers project automation rule and execution routes.
 func RegAutomationRoutes(r lib_web.Route) {
+	r[http.MethodGet][`/api/workspaces/:wsId/auto-assignment`] = wrapAction(withAnyPerm("auto_assignment:view", "auto_assignment:manage"), controller.GetAutoAssignment)
+	r[http.MethodPut][`/api/workspaces/:wsId/auto-assignment`] = wrapAction(withPerm("auto_assignment:manage"), controller.SaveAutoAssignment)
 	prefix := `/api/workspaces/:wsId/automation`
 	rules := prefix + `/rules`
 	executions := prefix + `/executions`

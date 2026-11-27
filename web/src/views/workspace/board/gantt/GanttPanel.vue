@@ -56,7 +56,7 @@
       :fields="visibleListFields"
       :date-scale="dateScale"
       :ws-id="wsId"
-      :can-edit-by-type="canEditByType"
+      :can-edit-by-type="canEditDatesByType"
       :can-create-by-type="canCreateByType"
       :can-delete-by-type="canDeleteByType"
       :can-copy-by-type="canCopyByType"
@@ -179,6 +179,19 @@ const canManageSystemView = computed(() =>
 
 // ======================== Metadata ========================
 const metadata = ref(null);
+const canEditDatesByType = computed(() =>
+  Object.fromEntries(
+    ["requirement", "defect"].map((type) => [
+      type,
+      ["planned_start_date", "planned_end_date"].every((key) =>
+        metadata.value?.[type]?.field_configs?.some(
+          (field) => field.key === key && field.can_edit === true,
+        ),
+      ),
+    ]),
+  ),
+);
+
 const userIdRef = computed(() => authStore.userInfo?.id);
 const {
   previewMode,

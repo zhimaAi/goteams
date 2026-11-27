@@ -2,15 +2,18 @@
   <section
     class="comment-section"
     :class="{
-      'has-comment-input': canEdit && !descriptionEditing,
+      'has-comment-input': canEdit && !descriptionEditing && isCommentFeedback,
       'comment-input-expanded':
-        canEdit && !descriptionEditing && commentInputFocused,
+        canEdit &&
+        !descriptionEditing &&
+        commentInputFocused &&
+        isCommentFeedback,
     }"
   >
     <h4 v-if="!inviteFiller">
       {{ $t("requirement_commented") }} ({{ comments.length }})
     </h4>
-    <a-tabs v-if="inviteFiller" v-model:active-key="commentTab" size="small">
+    <a-tabs v-if="inviteFiller" v-model:active-key="feedbackTab" size="small">
       <a-tab-pane
         key="internal"
         :disabled="commentSubmitting || replySubmitting || commentSaving"
@@ -21,210 +24,240 @@
         :disabled="commentSubmitting || replySubmitting || commentSaving"
         :tab="`${$t('requirement_publicReplies')} (${publicCommentCount})`"
       />
+      <a-tab-pane
+        v-if="showSatisfaction"
+        key="satisfaction"
+        :disabled="commentSubmitting || replySubmitting || commentSaving"
+        :tab="$t('satisfaction_evaluation_title')"
+      />
+      <a-tab-pane
+        v-if="showUrgeRecords"
+        key="urge"
+        :disabled="commentSubmitting || replySubmitting || commentSaving"
+        :tab="$t('issue_urge_records')"
+      />
     </a-tabs>
-    <a-empty
-      v-if="!visibleComments.length"
-      :image="simpleImage"
-      :description="$t('requirement_noComments')"
-    />
-    <template
-      v-for="{ comment: item, replyTo } in commentRenderList"
-      :key="item.id"
+    <div v-if="showUrgeRecords && feedbackTab === 'urge'">
+      <slot name="urge-records" />
+    </div>
+    <div
+      v-if="showSatisfaction && feedbackTab === 'satisfaction'"
+      class="satisfaction-tab-panel"
     >
-      <div
-        class="comment-item"
-        :class="{
-          'comment-item--reply': Number(item.parent_id) > 0 && replyTo,
-        }"
+      <slot name="satisfaction" />
+    </div>
+    <div v-show="isCommentFeedback" class="comment-list">
+      <a-empty
+        v-if="!visibleComments.length"
+        :image="simpleImage"
+        :description="$t('requirement_noComments')"
+      />
+      <template
+        v-for="{ comment: item, replyTo } in commentRenderList"
+        :key="item.id"
       >
-        <a-avatar
-          v-if="isInviteSubmitter(item)"
-          size="small"
-          class="comment-avatar--invite"
+        <div
+          class="comment-item"
+          :class="{
+            'comment-item--reply': Number(item.parent_id) > 0 && replyTo,
+          }"
         >
-          {{ $t("issue_invite_submitter_avatar") }}
-        </a-avatar>
-        <a-avatar v-else size="small" :src="commentAvatarUrl(item)">
-          <span>{{ (item.user_name || "?")[0] }}</span>
-        </a-avatar>
-        <div class="comment-body">
-          <div class="comment-meta">
-            <strong v-if="replyTo || (isPublic && !isInviteSubmitter(item))">{{
-              $t("requirement_commentReplyTitle", {
-                actor: authorLabel(item),
-                target: isPublic ? $t("issue_invite_filler") : replyTo,
-              })
-            }}</strong>
-            <strong v-else>{{ authorLabel(item) }}</strong>
-            <span class="muted">{{
-              formatLocalDate(item.created_at, true)
-            }}</span>
-            <div v-if="canEdit" class="comment-operations">
-              <a-button
-                type="text"
-                size="small"
-                class="comment-operation"
-                :title="$t('requirement_commentReply')"
-                @click="startReply(item)"
+          <a-avatar
+            v-if="isInviteSubmitter(item)"
+            size="small"
+            class="comment-avatar--invite"
+          >
+            {{ $t("issue_invite_submitter_avatar") }}
+          </a-avatar>
+          <a-avatar v-else size="small" :src="commentAvatarUrl(item)">
+            <span>{{ (item.user_name || "?")[0] }}</span>
+          </a-avatar>
+          <div class="comment-body">
+            <div class="comment-meta">
+              <strong
+                v-if="replyTo || (isPublic && !isInviteSubmitter(item))"
+                >{{
+                  $t("requirement_commentReplyTitle", {
+                    actor: authorLabel(item),
+                    target: isPublic ? $t("issue_invite_filler") : replyTo,
+                  })
+                }}</strong
               >
-                <MessageOutlined />
-              </a-button>
-              <template v-if="canModifyComment(item)">
+              <strong v-else>{{ authorLabel(item) }}</strong>
+              <span class="muted">{{
+                formatLocalDate(item.created_at, true)
+              }}</span>
+              <div v-if="canEdit" class="comment-operations">
                 <a-button
                   type="text"
                   size="small"
                   class="comment-operation"
-                  :title="$t('common_edit')"
-                  @click="startCommentEdit(item)"
+                  :title="$t('requirement_commentReply')"
+                  @click="startReply(item)"
                 >
-                  <EditOutlined />
+                  <MessageOutlined />
                 </a-button>
-                <a-button
-                  type="text"
-                  size="small"
-                  class="comment-operation"
-                  :title="$t('common_delete')"
-                  @click="deleteDetailComment(item)"
+                <template v-if="canModifyComment(item)">
+                  <a-button
+                    type="text"
+                    size="small"
+                    class="comment-operation"
+                    :title="$t('common_edit')"
+                    @click="startCommentEdit(item)"
+                  >
+                    <EditOutlined />
+                  </a-button>
+                  <a-button
+                    type="text"
+                    size="small"
+                    class="comment-operation"
+                    :title="$t('common_delete')"
+                    @click="deleteDetailComment(item)"
+                  >
+                    <DeleteOutlined />
+                  </a-button>
+                </template>
+              </div>
+            </div>
+            <div
+              v-if="editingCommentId === Number(item.id)"
+              class="comment-edit"
+            >
+              <RichTextEditor
+                v-model="commentEditDraft"
+                v-model:image-file-ids="commentEditImageFileIds"
+                class="comment-edit-editor"
+                :ws-id="wsId"
+                content-mode="rich-text"
+                plain
+                :min-height="96"
+                :mention-enabled="true"
+                :mention-members="mentionCandidates"
+              />
+              <div class="comment-edit-actions">
+                <span class="comment-mention-hint">{{
+                  $t("requirement_commentMentionHint")
+                }}</span>
+                <a-space>
+                  <a-button size="small" @click="cancelCommentEdit">{{
+                    $t("common_cancel")
+                  }}</a-button>
+                  <a-button
+                    type="primary"
+                    size="small"
+                    :disabled="!hasCommentContent(commentEditDraft)"
+                    :loading="commentSaving"
+                    @click="saveCommentEdit(item)"
+                  >
+                    {{ $t("common_save") }}
+                  </a-button>
+                </a-space>
+              </div>
+            </div>
+            <template v-else>
+              <a
+                v-if="commentUrl(item.content)"
+                :href="commentUrl(item.content)"
+                target="_blank"
+                rel="noopener noreferrer"
+                >{{ String(item.content).trim() }}</a
+              >
+              <RichTextEditor
+                v-else
+                class="comment-content-viewer"
+                :model-value="item.content"
+                content-mode="rich-text"
+                read-only
+                plain
+                :min-height="0"
+              />
+            </template>
+            <div
+              v-if="commentAttachments(item.id, item.content).length"
+              class="comment-attachments"
+            >
+              <template
+                v-for="file in commentAttachments(item.id, item.content)"
+                :key="file.id"
+              >
+                <a-image
+                  v-if="isImageAttachment(file) && file.url"
+                  class="comment-image-thumbnail"
+                  :width="96"
+                  :height="72"
+                  :src="file.url"
+                  :alt="file.original_name"
+                  :preview="false"
+                  @click="openAttachmentPreview(file)"
+                />
+                <video
+                  v-else-if="isVideoAttachment(file) && file.url"
+                  class="comment-video"
+                  :src="file.url"
+                  :aria-label="file.original_name"
+                  controls
+                  preload="metadata"
+                />
+                <button
+                  v-else
+                  type="button"
+                  class="comment-attachment-chip"
+                  @click="openAttachment(file)"
                 >
-                  <DeleteOutlined />
-                </a-button>
+                  <PaperClipOutlined />
+                  <span>{{ file.original_name }}</span>
+                  <small v-if="file.file_size">{{
+                    formatFileSize(file.file_size)
+                  }}</small>
+                </button>
               </template>
             </div>
           </div>
-          <div v-if="editingCommentId === Number(item.id)" class="comment-edit">
-            <RichTextEditor
-              v-model="commentEditDraft"
-              v-model:image-file-ids="commentEditImageFileIds"
-              class="comment-edit-editor"
-              :ws-id="wsId"
-              content-mode="rich-text"
-              plain
-              :min-height="96"
-              :mention-enabled="true"
-              :mention-members="mentionCandidates"
-            />
-            <div class="comment-edit-actions">
-              <span class="comment-mention-hint">{{
-                $t("requirement_commentMentionHint")
-              }}</span>
-              <a-space>
-                <a-button size="small" @click="cancelCommentEdit">{{
-                  $t("common_cancel")
-                }}</a-button>
-                <a-button
-                  type="primary"
-                  size="small"
-                  :disabled="!hasCommentContent(commentEditDraft)"
-                  :loading="commentSaving"
-                  @click="saveCommentEdit(item)"
-                >
-                  {{ $t("common_save") }}
-                </a-button>
-              </a-space>
-            </div>
+        </div>
+        <div v-if="replyTargetId === Number(item.id)" class="comment-reply-box">
+          <div class="comment-reply-box__title">
+            {{ $t("requirement_commentReplyTo", { name: authorLabel(item) }) }}
           </div>
-          <template v-else>
-            <a
-              v-if="commentUrl(item.content)"
-              :href="commentUrl(item.content)"
-              target="_blank"
-              rel="noopener noreferrer"
-              >{{ String(item.content).trim() }}</a
+          <CommentRichTextInput
+            v-model="replyDraft"
+            v-model:image-file-ids="replyImageFileIds"
+            class="comment-editor"
+            :ws-id="wsId"
+            :min-height="72"
+            always-expanded
+            full-border
+            :placeholder="$t('requirement_addCommentPlaceholder')"
+            :mention-enabled="true"
+            :mention-members="mentionCandidates"
+            @submit="submitReply"
+          />
+          <div class="comment-reply-box__actions">
+            <span class="comment-mention-hint">{{
+              $t("requirement_commentMentionHint")
+            }}</span>
+            <a-button
+              size="small"
+              :disabled="replySubmitting"
+              @click="cancelReply"
             >
-            <RichTextEditor
-              v-else
-              class="comment-content-viewer"
-              :model-value="item.content"
-              content-mode="rich-text"
-              read-only
-              plain
-              :min-height="0"
-            />
-          </template>
-          <div
-            v-if="commentAttachments(item.id, item.content).length"
-            class="comment-attachments"
-          >
-            <template
-              v-for="file in commentAttachments(item.id, item.content)"
-              :key="file.id"
+              {{ $t("common_cancel") }}
+            </a-button>
+            <a-button
+              type="primary"
+              size="small"
+              :disabled="!hasCommentContent(replyDraft)"
+              :loading="replySubmitting"
+              @click="submitReply"
             >
-              <a-image
-                v-if="isImageAttachment(file) && file.url"
-                class="comment-image-thumbnail"
-                :width="96"
-                :height="72"
-                :src="file.url"
-                :alt="file.original_name"
-                :preview="false"
-                @click="openAttachmentPreview(file)"
-              />
-              <video
-                v-else-if="isVideoAttachment(file) && file.url"
-                class="comment-video"
-                :src="file.url"
-                :aria-label="file.original_name"
-                controls
-                preload="metadata"
-              />
-              <button
-                v-else
-                type="button"
-                class="comment-attachment-chip"
-                @click="openAttachment(file)"
-              >
-                <PaperClipOutlined />
-                <span>{{ file.original_name }}</span>
-                <small v-if="file.file_size">{{
-                  formatFileSize(file.file_size)
-                }}</small>
-              </button>
-            </template>
+              {{ $t("common_confirm") }}
+            </a-button>
           </div>
         </div>
-      </div>
-      <div v-if="replyTargetId === Number(item.id)" class="comment-reply-box">
-        <div class="comment-reply-box__title">
-          {{ $t("requirement_commentReplyTo", { name: authorLabel(item) }) }}
-        </div>
-        <CommentRichTextInput
-          v-model="replyDraft"
-          v-model:image-file-ids="replyImageFileIds"
-          class="comment-editor"
-          :ws-id="wsId"
-          :min-height="72"
-          always-expanded
-          full-border
-          :placeholder="$t('requirement_addCommentPlaceholder')"
-          :mention-enabled="true"
-          :mention-members="mentionCandidates"
-          @submit="submitReply"
-        />
-        <div class="comment-reply-box__actions">
-          <span class="comment-mention-hint">{{
-            $t("requirement_commentMentionHint")
-          }}</span>
-          <a-button
-            size="small"
-            :disabled="replySubmitting"
-            @click="cancelReply"
-          >
-            {{ $t("common_cancel") }}
-          </a-button>
-          <a-button
-            type="primary"
-            size="small"
-            :disabled="!hasCommentContent(replyDraft)"
-            :loading="replySubmitting"
-            @click="submitReply"
-          >
-            {{ $t("common_confirm") }}
-          </a-button>
-        </div>
-      </div>
-    </template>
+      </template>
+    </div>
     <div
       v-if="canEdit && !descriptionEditing"
+      v-show="isCommentFeedback"
       class="comment-input"
       :class="{ expanded: commentInputFocused }"
       :style="inputStyle"
@@ -351,6 +384,8 @@ const props = defineProps({
   mentionMembers: { type: Array, default: () => [] },
   // 当前工单是否来自邀填工单；是则在 @ 候选里追加一个「邀填人」。
   inviteFiller: { type: Boolean, default: false },
+  showSatisfaction: { type: Boolean, default: false },
+  showUrgeRecords: { type: Boolean, default: false },
 });
 const emit = defineEmits(["refresh-attachments"]);
 const { t } = useI18n();
@@ -358,6 +393,28 @@ const authStore = useAuthStore();
 const simpleImage = Empty.PRESENTED_IMAGE_SIMPLE;
 const comments = ref([]);
 const commentTab = ref("internal");
+const feedbackTab = ref("internal");
+const isCommentFeedback = computed(() =>
+  ["internal", "public"].includes(feedbackTab.value),
+);
+// Keep the last reply scope when viewing feedback; no third draft or implicit public reply.
+watch(feedbackTab, (tab) => {
+  if (tab === "internal" || tab === "public") commentTab.value = tab;
+});
+watch(
+  () => props.showSatisfaction,
+  (enabled) => {
+    if (!enabled && feedbackTab.value === "satisfaction")
+      feedbackTab.value = commentTab.value;
+  },
+);
+watch(
+  () => props.showUrgeRecords,
+  (enabled) => {
+    if (!enabled && feedbackTab.value === "urge")
+      feedbackTab.value = commentTab.value;
+  },
+);
 const isPublic = computed(
   () => props.inviteFiller && commentTab.value === "public",
 );
@@ -681,6 +738,7 @@ watch(
     drafts.internal = emptyDraft();
     drafts.public = emptyDraft();
     commentTab.value = "internal";
+    feedbackTab.value = "internal";
     commentInputFocused.value = false;
     // 切换到其它需求时关闭仍在展示的预览，避免残留上一个需求的图片。
     closeImageViewer();

@@ -27,6 +27,8 @@ func RegFieldRoutes(r lib_web.Route) {
 	r[http.MethodPut][orderPath] = wrapAction(withTypeScopedPerm(planningFieldPerm,
 		"requirement_setting:field", "defect_setting:field"), controller.SaveFieldOrder)
 
+	r[http.MethodPut][`/api/workspaces/:wsId/fields/edit-roles`] = wrapAction(withTypeScopedPerm(map[string]string{}, "requirement_setting:field", "defect_setting:field"), controller.SaveFieldEditPolicy)
+
 	// Custom field CRUD.
 	r[http.MethodGet][cfPrefix] = wrapAction(withWorkspaceMember(), controller.ListCustomFields)
 	r[http.MethodGet][cfPrefix+`/enterprise-roles`] = wrapAction(withTypeScopedPerm(planningFieldPerm,

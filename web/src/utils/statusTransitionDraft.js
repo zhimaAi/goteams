@@ -30,6 +30,11 @@ export function createStatusTransitionDraft(workItem, customFields) {
     } else custom_fields[field.id] = raw ?? "";
   }
   return {
+    severity_id: Number(item.severity_id) || undefined,
+    estimated_work_hours: Number(item.estimated_work_hours) || 0,
+    responsible_ids: Array.isArray(item.responsible_ids)
+      ? item.responsible_ids.map(Number)
+      : [],
     assignee_ids: Array.isArray(item.assignee_ids)
       ? item.assignee_ids.map(Number)
       : [],
@@ -44,7 +49,11 @@ export function createStatusTransitionDraft(workItem, customFields) {
 }
 
 export function isStatusTransitionFieldEmpty(field, value, customField) {
-  if (field.key === "assignee") return !value?.length;
+  if (field.key === "estimated_work_hours")
+    return value === undefined || value === null || value === "";
+  if (field.key === "severity_id") return !value;
+  if (field.key === "assignee" || field.key === "responsible_ids")
+    return !value?.length;
   if (field.key === "comment") return isRichTextEmpty(value);
   if (field.key === "version" || field.key === "priority") return !value;
   if (field.key === "planned_start_date" || field.key === "planned_end_date")

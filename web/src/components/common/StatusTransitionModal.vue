@@ -66,7 +66,11 @@
               {{ fieldLabel(field.key) }}
               <span v-if="field.required === 1" class="req">*</span>
             </label>
-            <div class="field-control">
+            <div
+              class="field-control"
+              :inert="!canEditTransitionField(field.key) ? '' : undefined"
+              :aria-disabled="!canEditTransitionField(field.key)"
+            >
               <AssigneeSelect
                 v-if="field.key === 'assignee'"
                 :value="draft.assignee_ids"
@@ -88,6 +92,30 @@
                 allow-clear
                 :placeholder="$t('workspace_field_priority')"
                 :options="priorityOptions"
+              />
+              <a-select
+                v-else-if="field.key === 'severity_id'"
+                v-model:value="draft.severity_id"
+                allow-clear
+                :placeholder="$t('workspace_severity')"
+                :options="severityOptions"
+              />
+              <a-input-number
+                v-else-if="field.key === 'estimated_work_hours'"
+                v-model:value="draft.estimated_work_hours"
+                :min="0"
+                :max="99999999.99"
+                :precision="2"
+                :step="0.01"
+              />
+              <AssigneeSelect
+                v-else-if="field.key === 'responsible_ids'"
+                :value="draft.responsible_ids"
+                :members="members"
+                :placeholder="$t('workspace_field_responsible')"
+                size="default"
+                :default-open="false"
+                @save="(value) => (draft.responsible_ids = value)"
               />
               <PlannedDatePicker
                 v-else-if="field.key === 'planned_start_date'"
@@ -215,10 +243,12 @@ const {
   memberOptions,
   versionOptions,
   priorityOptions,
+  severityOptions,
   statusOptions,
   displayStatusName,
   fieldLabel,
   customFieldOf,
+  canEditTransitionField,
   close,
   confirm,
 } = useStatusTransitionModal(props, emit, $t);

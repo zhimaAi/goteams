@@ -37,6 +37,7 @@
     "dayjs": "^1.11.10",
     "diff": "^9.0.0",
     "dompurify": "^3.4.13",
+    "echarts": "^6.1.0",
     "highlight.js": "11.11.1",
     "localforage": "^1.10.0",
     "mammoth": "^1.12.1",

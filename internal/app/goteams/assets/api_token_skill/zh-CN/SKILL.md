@@ -202,13 +202,13 @@ description: 通过 GoTeams 开放 API 以个人身份查看与维护工作项�
 | assignee_ids | int[] | 否 | 负责人 ID 列表 |
 | planned_start_date | int | 否 | 预计开始，Unix 秒 |
 | planned_end_date | int | 否 | 预计结束，Unix 秒 |
-| estimated_work_hours | number | 否 | 预计工时（小时），≥ 0，最多两位小数；**缺陷会被静默归零** |
+| estimated_work_hours | number | 否 | 预估工时（小时），需求和缺陷均支持，≥ 0，最多两位小数 |
 | custom_fields | object | 否 | `{"自定义字段 ID": "值"}`；键是字段 ID 的十进制字符串 |
 | image_file_ids | int[] | 否 | 正文里先上传的素材 ID（上传接口返回的 file_id），建工作项时一起传，文件才会挂到本工作项 |
 
 成功后返回 `{"id": 新建工作项的 ID}`。
 
-**只有需求有预计工时**：`type` 为 `defect` 时，传 `estimated_work_hours` 不报错，但服务端会把它归零——建完或改完再读详情，`estimated_work_hours` 都是 `0`。所以别拿请求里传的值当结果，是否生效要看详情返回。
+需求和缺陷均可设置 `estimated_work_hours`。
 
 **正文格式**：`description` 的内容一律是 HTML，与 `description_mode` 传什么无关。`description_mode` 只声明 Web 端用哪种编辑器打开它——`rich-text`（默认）用富文本编辑器，`markdown` 用 Markdown 编辑器；两种编辑器都以 HTML 作为读写格式，服务端不对正文做任何转换。
 
@@ -238,7 +238,7 @@ python3 scripts/create_work_item.py --ws-id <wsId> --title "标题" \
 - `image_file_ids` 是本次新增素材的 ID（上传接口返回的 file_id），**必须跟其它字段一起传**：只传素材 ID、不改任何列时接口会返回 400「参数无效」，文件也不会挂上去。
 - `status_id`、`priority_id`、`parent_id`、`version_id` 传 `0`（或不传）等于不修改；本接口不支持把这几项置空。
 - `assignee_ids` 传 `[]` 表示清空负责人；完全不传表示不动。
-- `estimated_work_hours` 对缺陷会被静默归零：不报错，也不生效。
+- 更新缺陷的 `estimated_work_hours` 时沿用需求的数字及精度校验。
 - `description_mode` 只决定 Web 端用哪种编辑器打开正文，`description` 的内容始终是 HTML；要换编辑器就传它，不换可以不传。
 - 成功后 `data` 为 `null`。
 

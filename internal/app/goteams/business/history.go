@@ -80,13 +80,16 @@ func captureProcessingSnapshotTx(tx *sql.Tx, adminID, workspaceID, requirementID
 		return nil, nil
 	}
 	// 调用方已完成本次写入；锁定同一行，避免快照混入其他并发事务的结果。
-	query := `SELECT jsonb_build_object('status_id', r.status_id,
+	query := `SELECT (jsonb_build_object('status_id', r.status_id,
  'status_name', COALESCE(s.name, ''), 'status_color', COALESCE(s.color, ''),
  'assignee_ids', COALESCE(to_jsonb(r.assignee_ids), '[]'::jsonb),
  'assignee_names', COALESCE((SELECT jsonb_agg(COALESCE(NULLIF(u.name,''), NULLIF(ru.name,''), '#' || a.id::text) ORDER BY a.ord)
  FROM unnest(r.assignee_ids) WITH ORDINALITY a(id,ord)
  LEFT JOIN ` + define.TableUsers + ` u ON u.admin_id=r.admin_id AND u.id=a.id
- LEFT JOIN ` + define.TableRemovedUsers + ` ru ON ru.admin_id=r.admin_id AND ru.user_id=a.id), '[]'::jsonb))::text AS snapshot
+ LEFT JOIN ` + define.TableRemovedUsers + ` ru ON ru.admin_id=r.admin_id AND ru.user_id=a.id), '[]'::jsonb))
+ || CASE WHEN r.type='defect' THEN jsonb_build_object(
+   'responsible_ids', to_jsonb(r.responsible_ids), 'responsible_names', ` + responsibleNamesSQL + `)
+ ELSE '{}'::jsonb END)::text AS snapshot
  FROM ` + define.TableRequirements + ` r
  LEFT JOIN ` + define.TableWorkItemStatuses + ` s ON s.admin_id=r.admin_id AND s.workspace_id=r.workspace_id AND s.type_key=r.type AND s.id=r.status_id
  WHERE r.admin_id=$1 AND r.workspace_id=$2 AND r.id=$3 FOR UPDATE OF r`

@@ -52,6 +52,52 @@ type NotificationListModel struct {
 	Size        int
 }
 
+// ListNotificationsModel contains the authenticated user's list filters.
+type ListNotificationsModel struct {
+	AdminID    int
+	UserID     int
+	Page       int
+	Size       int
+	UnreadOnly bool
+	Category   string
+}
+
+var notificationCategoryEvents = map[string][]string{
+	`work_item_changes`: {define.NotificationEventItemUpdated, define.NotificationEventItemAssigned},
+	`urges`:             {define.NotificationEventIssueInviteUrged},
+	`comments`:          {define.NotificationEventCommentReplied, define.NotificationEventAssigneeCommented, define.NotificationEventMention},
+	`warnings`:          {define.NotificationEventWarningNotification},
+	`sla`:               {define.NotificationEventSlaOverdue, define.NotificationEventSlaWarning, define.NotificationEventWorkItemSLA},
+	`workspace_access`:  {define.NotificationEventWorkspaceAccessRequested, define.NotificationEventWorkspaceMemberAdded},
+}
+
+// ValidateNotificationCategory accepts the public notification category values.
+func ValidateNotificationCategory(category string) error {
+	if category == `` || category == `all` {
+		return nil
+	}
+	if _, ok := notificationCategoryEvents[category]; !ok {
+		return errors.New(`invalid notification category`)
+	}
+	return nil
+}
+
+func notificationListFilter(model ListNotificationsModel) (string, []any, error) {
+	if err := ValidateNotificationCategory(model.Category); err != nil {
+		return ``, nil, err
+	}
+	where := `n.admin_id = $1 AND n.recipient_user_id = $2`
+	args := []any{model.AdminID, model.UserID}
+	if model.UnreadOnly {
+		where += ` AND n.read_at = 0`
+	}
+	if events, ok := notificationCategoryEvents[model.Category]; ok {
+		args = append(args, pq.Array(events))
+		where += fmt.Sprintf(` AND n.event_type = ANY($%d::text[])`, len(args))
+	}
+	return where, args, nil
+}
+
 type notificationEvent struct {
 	AdminID       int
 	RecipientID   int
@@ -113,7 +159,12 @@ func CreateWorkspaceNotificationTx(tx *sql.Tx, event notificationEvent) error {
 }
 
 // ListNotifications returns notifications for one tenant user across all workspaces.
-func ListNotifications(adminID, userID int, unreadOnly bool, page, size int) (NotificationListModel, error) {
+func ListNotifications(model ListNotificationsModel) (NotificationListModel, error) {
+	where, args, err := notificationListFilter(model)
+	if err != nil {
+		return NotificationListModel{}, err
+	}
+	page, size := model.Page, model.Size
 	if page < 1 {
 		page = 1
 	}
@@ -121,16 +172,11 @@ func ListNotifications(adminID, userID int, unreadOnly bool, page, size int) (No
 		size = 20
 	}
 	offset := (page - 1) * size
-	where := `n.admin_id = $1 AND n.recipient_user_id = $2`
-	args := []any{adminID, userID}
-	if unreadOnly {
-		where += ` AND n.read_at = 0`
-	}
-	count, err := msql.RawValues(define.Postgres, `SELECT COUNT(*) AS total FROM notifications n WHERE `+where, nil, args...)
+	count, err := msql.RawValues(define.Postgres, `SELECT COUNT(*) AS total FROM `+define.TableNotifications+` n WHERE `+where, nil, args...)
 	if err != nil {
 		return NotificationListModel{}, err
 	}
-	unread, err := msql.RawValues(define.Postgres, `SELECT COUNT(*) AS total FROM notifications WHERE admin_id = $1 AND recipient_user_id = $2 AND read_at = 0`, nil, adminID, userID)
+	unread, err := msql.RawValues(define.Postgres, `SELECT COUNT(*) AS total FROM `+define.TableNotifications+` WHERE admin_id = $1 AND recipient_user_id = $2 AND read_at = 0`, nil, model.AdminID, model.UserID)
 	if err != nil {
 		return NotificationListModel{}, err
 	}
@@ -141,7 +187,7 @@ func ListNotifications(adminID, userID int, unreadOnly bool, page, size int) (No
 		COALESCE(NULLIF(creator.name, ''), creator.username, removed_creator.name, '') AS creator_name,
 		COALESCE(assignees.names, '') AS assignee_names, COALESCE(r.title, '') AS requirement_title, COALESCE(NULLIF(u.name, ''), u.username, '') AS actor_name,
 		COALESCE(u.avatar, '') AS actor_avatar, n.read_at, n.created_at
-		FROM notifications n LEFT JOIN workspaces w ON w.admin_id = n.admin_id AND w.id = n.workspace_id
+		FROM `+define.TableNotifications+` n LEFT JOIN workspaces w ON w.admin_id = n.admin_id AND w.id = n.workspace_id
 		LEFT JOIN requirements r ON r.admin_id = n.admin_id AND r.workspace_id = n.workspace_id AND r.id = n.requirement_id
 		LEFT JOIN workspace_priorities p ON p.admin_id = r.admin_id AND p.workspace_id = r.workspace_id AND p.type_key = r.type AND p.id = r.priority
 		LEFT JOIN users creator ON creator.admin_id = r.admin_id AND creator.id = r.created_by
@@ -154,7 +200,7 @@ func ListNotifications(adminID, userID int, unreadOnly bool, page, size int) (No
 		) assignees ON true
 		LEFT JOIN workspace_work_item_attributes a ON a.admin_id = n.admin_id AND a.workspace_id = n.workspace_id AND a.type_key = r.type
 		LEFT JOIN users u ON u.admin_id = n.admin_id AND u.id = n.actor_user_id
-		WHERE `+where+` ORDER BY n.created_at DESC, n.id DESC LIMIT $3 OFFSET $4`, nil, append(args, size, offset)...)
+		WHERE `+where+fmt.Sprintf(` ORDER BY n.created_at DESC, n.id DESC LIMIT $%d OFFSET $%d`, len(args)+1, len(args)+2), nil, append(args, size, offset)...)
 	if err != nil {
 		return NotificationListModel{}, err
 	}
@@ -243,7 +289,7 @@ func notificationItemType(typeKey string) string {
 
 func notificationContent(event notificationEvent, actor, itemType string) string {
 	fieldLabels := map[string]string{
-		`status`: `状态`, `priority`: `优先级`, `severity_id`: `严重等级`, `assignee`: `处理人`, `title`: `标题`, `description`: `描述`,
+		`status`: `状态`, `priority`: `优先级`, `severity_id`: `严重等级`, `responsible_ids`: `责任人`, `assignee`: `处理人`, `title`: `标题`, `description`: `描述`,
 		`planned_end_date`: `截止日期`, `planned_start_date`: `开始日期`, `version_id`: `所属迭代`, `parent_id`: `父级工作项`,
 		`work_hours`: `工时`,
 	}

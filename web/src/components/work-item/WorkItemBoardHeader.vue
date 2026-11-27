@@ -2,7 +2,10 @@
   <div v-if="projectEnded" class="ended-ribbon">
     <span>{{ $t("project_ended_tag") }}</span>
   </div>
-  <div class="board-top">
+  <div
+    class="board-top"
+    :class="{ 'board-top--report': activeTab === 'report' }"
+  >
     <img
       v-if="projectIcon"
       :src="projectIcon"
@@ -196,7 +199,12 @@ const navigationTabLabels = computed(() =>
 const topNavigationKeys = computed(() => {
   const available = availableNavigationTabs.value;
   if (!navigationOrder.value.length) return available;
-  return navigationOrder.value.filter((key) => available.includes(key));
+  const order = navigationOrder.value.filter((key) => available.includes(key));
+  if (available.includes("statistics") && !order.includes("statistics")) {
+    const dashboard = order.indexOf("dashboard");
+    order.splice(dashboard < 0 ? order.length : dashboard + 1, 0, "statistics");
+  }
+  return order;
 });
 const topNavigationTabs = computed(() =>
   topNavigationKeys.value.map((key) => ({
@@ -366,4 +374,7 @@ watch(wsId, loadNavigationSettings, { immediate: true });
 </script>
 <style scoped lang="less">
 @import "./workItemBoard.less";
+.board-top.board-top--report {
+  margin-bottom: 0;
+}
 </style>

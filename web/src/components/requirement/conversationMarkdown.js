@@ -1,12 +1,5 @@
 import DOMPurify from "dompurify";
-import { marked } from "marked";
-
-const CODE_REGION_RE = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/g;
-const DOC_REFERENCE_RE = /#\[([^\]\n]{1,200})\]/g;
-// Placeholders survive markdown parsing: they are plain ASCII with no syntax meaning,
-// so a document path containing `*`, `_` or brackets cannot break the surrounding text.
-const DOC_PLACEHOLDER_RE = /@@GTDOC(\d+)@@/g;
-const MAX_LINKIFIED_PATH = 512;
+import { Marked } from "marked";
 
 function escapeHtml(value) {
   return value
@@ -25,14 +18,6 @@ function normalizeMarkdown(value) {
     .trim();
 }
 
-function isCodeRegion(part) {
-  return (
-    part.startsWith("```") ||
-    part.startsWith("~~~") ||
-    (part.startsWith("`") && part.endsWith("`") && part.length > 1)
-  );
-}
-
 function baseName(path) {
   const segments = String(path || "").split("/");
   return segments[segments.length - 1] || "";
@@ -44,18 +29,6 @@ function stripExtension(name) {
 
 function docAnchor(label) {
   return `<span class="markdown-doc-reference">${escapeHtml(label)}</span>`;
-}
-
-// `#[文件名]` is the client's persisted document reference. A document in this task's
-// list becomes a link; anything else keeps the previous non-clickable label.
-function renderDocReferences(part, documents, placeholders) {
-  return part.replace(DOC_REFERENCE_RE, (match, name) => {
-    const label = String(name).split(" · ")[0].trim();
-    if (!label) return match;
-    const doc = findDocumentByName(documents, label);
-    if (!doc) return docAnchor(label);
-    return addPlaceholder(placeholders, doc, label);
-  });
 }
 
 function findDocumentByName(documents, name) {
@@ -71,48 +44,87 @@ function findDocumentByName(documents, name) {
   );
 }
 
-// Literal matching only: no regex is built from user paths, so Windows separators,
-// brackets and CJK characters cannot turn into a pattern.
-function linkifyDocPaths(part, documents, placeholders) {
-  const targets = [];
-  documents.forEach((doc) => {
-    const base = baseName(doc.rel_path);
-    const candidates = [doc.source_abs_path, doc.rel_path];
-    // A bare file name is only linkified when it still looks like a file name;
-    // short names such as "a.md" would otherwise hit unrelated prose.
-    if (base.length >= 6 && base.includes(".")) {
-      candidates.push(base);
+// Keep Windows separators literal inside existing Markdown destinations.
+function destination(token) {
+  const windows = token.raw?.match(
+    /\]\(\s*(?:<([A-Za-z]:[\\/][^>]+)>|([A-Za-z]:[\\/][\s\S]*?))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)$/,
+  );
+  return windows ? windows[1] || windows[2] : token.href || "";
+}
+
+function isLocalPath(value) {
+  if (/^(?:file:|[A-Za-z]:[\\/])/i.test(value)) return true;
+  return !/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/\/)/.test(value);
+}
+
+function normalizedPath(value, encoded = false, directory = "") {
+  let path = String(value || "").trim();
+  if (encoded) {
+    if (/^file:/i.test(path)) {
+      try {
+        const url = new URL(path);
+        if (url.hostname && url.hostname !== "localhost") return "";
+        path = url.pathname;
+        if (/^\/[A-Za-z]:\//.test(path)) path = path.slice(1);
+      } catch {
+        return "";
+      }
+    } else {
+      path = path.split(/[?#]/, 1)[0];
     }
-    candidates.forEach((value) => {
-      const path = String(value || "").trim();
-      if (!path || path.length > MAX_LINKIFIED_PATH) return;
-      targets.push({ path, doc });
-    });
-  });
-  targets.sort((left, right) => right.path.length - left.path.length);
-  return targets.reduce((text, target) => {
-    if (!text.includes(target.path)) return text;
-    const token = addPlaceholder(placeholders, target.doc, target.path);
-    return text.split(target.path).join(token);
-  }, part);
+    try {
+      path = decodeURIComponent(path);
+    } catch {
+      return "";
+    }
+  }
+  path = `${directory}${path}`.replace(/\\/g, "/");
+  if (!path || /[\0\r\n]/.test(path) || path.startsWith("//")) return "";
+  const parts = [];
+  for (const part of path.split("/")) {
+    if (part === ".") continue;
+    if (part === "..") {
+      if (!parts.length || parts.at(-1) === "") return "";
+      parts.pop();
+    } else parts.push(part);
+  }
+  const result = parts.join("/");
+  return /^[A-Za-z]:\//.test(result) ? result.toLowerCase() : result;
 }
 
-function addPlaceholder(placeholders, doc, label) {
-  const token = `@@GTDOC${placeholders.length}@@`;
-  placeholders.push({ doc, label });
-  return token;
+function documentForPath(value, documents, sourcePath) {
+  const path = normalizedPath(value, true);
+  const absolute = /^(?:\/|[a-z]:\/)/i.test(path);
+  const candidates = [path];
+  if (!absolute && sourcePath) {
+    candidates.unshift(
+      normalizedPath(value, true, sourcePath.replace(/[^/]*$/, "")),
+    );
+  }
+  for (const candidate of candidates) {
+    const matches = documents.filter(
+      (doc) =>
+        candidate &&
+        candidate ===
+          normalizedPath(absolute ? doc.source_abs_path : doc.rel_path),
+    );
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) return null;
+  }
+  return null;
 }
 
-function applyDocPlaceholders(html, placeholders) {
-  if (!placeholders.length) return html;
-  return html.replace(DOC_PLACEHOLDER_RE, (match, rawIndex) => {
-    const item = placeholders[Number(rawIndex)];
-    if (!item) return match;
-    const docKey = escapeHtml(String(item.doc.doc_key || ""));
-    // No href: the click is handled by the host page, which asks the API for a
-    // short-lived signed link instead of putting storage URLs in the DOM.
-    return `<a class="markdown-doc-reference" role="link" tabindex="0" data-doc-id="${item.doc.document_id}" data-doc-key="${docKey}">${escapeHtml(item.label)}</a>`;
-  });
+function documentAnchor(doc, label) {
+  const id = Number(doc.document_id);
+  if (!Number.isSafeInteger(id) || id <= 0) return docAnchor(label);
+  return `<a class="markdown-doc-reference" role="link" tabindex="0" data-doc-id="${id}">${escapeHtml(label)}</a>`;
+}
+
+function localImageHtml(href, label, documents, options) {
+  const doc = documentForPath(href, documents, options.sourcePath);
+  const id = Number(doc?.document_id) || 0;
+  const status = id ? options.loading : options.notSynced;
+  return `<span class="markdown-document-image" data-image-document-id="${id}"><button type="button" class="markdown-image-preview" disabled aria-label="${escapeHtml(options.preview || label)}"><img alt="${escapeHtml(label)}" hidden><span class="markdown-image-status" role="status">${escapeHtml(status || "")}</span></button><button type="button" class="markdown-image-retry" hidden>${escapeHtml(options.retry || "")}</button></span>`;
 }
 
 function sanitizeMessageHtml(value) {
@@ -122,10 +134,17 @@ function sanitizeMessageHtml(value) {
   });
 }
 
-function openLinksInNewTab(html) {
+function resolveRenderedResources(html, documents, options) {
   if (typeof document === "undefined") return html;
   const template = document.createElement("template");
   template.innerHTML = html;
+  template.content.querySelectorAll("img[src]").forEach((image) => {
+    const href = image.getAttribute("src") || "";
+    if (!isLocalPath(href)) return;
+    const replacement = document.createElement("template");
+    replacement.innerHTML = localImageHtml(href, image.alt, documents, options);
+    image.replaceWith(replacement.content);
+  });
   template.content.querySelectorAll("a[href]").forEach((anchor) => {
     const href = anchor.getAttribute("href") || "";
     if (!/^(?:https?:|mailto:|\/)/i.test(href)) return;
@@ -135,32 +154,63 @@ function openLinksInNewTab(html) {
   return template.innerHTML;
 }
 
-// 不使用 markdownToHtml：编辑器预览固定 breaks: false，这里要保留执行输出里的单换行。
-// documents 是本任务的产出文档清单（document_id / doc_key / title / rel_path /
-// source_abs_path）。只有清单内的路径会被链接化，代码块内一律不处理。
-export function renderConversationMarkdown(value, documents = []) {
+// Resolve only explicit references and Markdown links/images; prose and code stay literal.
+export function renderConversationMarkdown(
+  value,
+  documents = [],
+  options = {},
+) {
   const source = normalizeMarkdown(value);
   if (!source) return "";
   const list = Array.isArray(documents) ? documents : [];
-  const placeholders = [];
+  const parser = new Marked({
+    async: false,
+    gfm: true,
+    breaks: true,
+    renderer: {
+      image(token) {
+        const href = destination(token);
+        return isLocalPath(href)
+          ? localImageHtml(href, token.text || "", list, options)
+          : false;
+      },
+      link(token) {
+        const href = destination(token);
+        if (!isLocalPath(href) || href.startsWith("#")) return false;
+        const doc = documentForPath(href, list, options.sourcePath);
+        return doc
+          ? documentAnchor(doc, token.text)
+          : this.parser.parseInline(token.tokens);
+      },
+    },
+    extensions: [
+      {
+        name: "documentReference",
+        level: "inline",
+        start(src) {
+          return src.indexOf("#[");
+        },
+        tokenizer(src) {
+          const match = /^#\[([^\]\n]{1,200})\]/.exec(src);
+          if (match)
+            return {
+              type: "documentReference",
+              raw: match[0],
+              text: match[1].split(" · ")[0].trim(),
+            };
+        },
+        renderer(token) {
+          const doc = findDocumentByName(list, token.text);
+          return doc ? documentAnchor(doc, token.text) : docAnchor(token.text);
+        },
+      },
+    ],
+  });
   try {
-    const prepared = source
-      .split(CODE_REGION_RE)
-      .map((part) => {
-        if (isCodeRegion(part)) return part;
-        const withReferences = renderDocReferences(part, list, placeholders);
-        return list.length
-          ? linkifyDocPaths(withReferences, list, placeholders)
-          : withReferences;
-      })
-      .join("");
-    const html = marked.parse(prepared, {
-      async: false,
-      gfm: true,
-      breaks: true,
-    });
-    return openLinksInNewTab(
-      sanitizeMessageHtml(applyDocPlaceholders(html, placeholders)),
+    return resolveRenderedResources(
+      sanitizeMessageHtml(parser.parse(source)),
+      list,
+      options,
     );
   } catch {
     return escapeHtml(source).replace(/\n/g, "<br>");

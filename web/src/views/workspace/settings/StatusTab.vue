@@ -196,7 +196,16 @@
       :reload-key="transitionReloadKey"
     />
 
+    <WorkItemTimeCard
+      v-if="typeKey === 'requirement'"
+      :ws-id="wsId"
+      :statuses="statuses"
+      :can-manage="canManage"
+      :reload-key="transitionReloadKey"
+    />
+
     <AdvancedStatusTransitionCard
+      :statuses="statuses"
       v-if="typeKey !== 'planning'"
       :ws-id="wsId"
       :type-key="typeKey"
@@ -284,6 +293,7 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { typeSettingPermission } from "@/utils/typePermission";
 import { AGING_CONTROL_ANCHOR } from "@/constants/statusTransition";
+import WorkItemTimeCard from "./WorkItemTimeCard.vue";
 import AdvancedStatusTransitionCard from "./AdvancedStatusTransitionCard.vue";
 import { useWorkspaceApplications } from "@/composables/useWorkspaceApplications";
 import StatusActionsCard from "./StatusActionsCard.vue";

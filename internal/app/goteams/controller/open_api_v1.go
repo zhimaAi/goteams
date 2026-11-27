@@ -534,10 +534,7 @@ func UpdateApiWorkItem(c *gin.Context) {
 		abortBadRequest(c, bindErrorMessage(err, lang, define.MsgParamInvalid), `api.work_item.update.bind`, err)
 		return
 	}
-	// 写路径与界面一致：先确认条目存在，再按条目类型校验编辑权限。
-	if !ensureRequirementPermission(c, lang, wsId, itemId, `edit`) {
-		return
-	}
+	// 具体对象及字段权限由共享人工更新用例校验，Token scope 和额度仍在入口约束。
 	if !common.ApiQuotaCharge(c) {
 		return
 	}
@@ -583,6 +580,10 @@ func UpdateApiWorkItem(c *gin.Context) {
 		ImageFileIds:       req.ImageFileIds,
 	}
 	if err = business.UpdateApiWorkItem(model); err != nil {
+		if errors.Is(err, business.ErrFieldEditForbidden) {
+			abortForbidden(c, lib_i18n.Show(lang, define.MsgForbidden))
+			return
+		}
 		abortApiWorkItemWriteError(c, lang, err)
 		return
 	}

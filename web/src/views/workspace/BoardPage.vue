@@ -30,6 +30,16 @@
       }"
     />
 
+    <ReportPanel
+      v-else-if="
+        activeTab === 'report' && enabledApplications.includes('report')
+      "
+      :key="`report-${wsId}`"
+      :ws-id="wsId"
+      :defect-enabled="enabledApplications.includes('defect')"
+      :metadata="workspaceMetadata"
+    />
+
     <!-- ============ Knowledge Base View ============ -->
     <KnowledgeBaseView
       v-else-if="activeTab === 'knowledge'"
@@ -61,6 +71,7 @@ import { ref } from "vue";
 import { useWorkItemBoard } from "@/composables/useWorkItemBoard";
 import WorkItemBoardHeader from "@/components/work-item/WorkItemBoardHeader.vue";
 import WorkItemList from "@/components/work-item/WorkItemList.vue";
+import ReportPanel from "./board/reports/ReportPanel.vue";
 import PlanningPanel from "./board/planning/PlanningPanel.vue";
 import GanttPanel from "./board/gantt/GanttPanel.vue";
 import DashboardPanel from "@/components/dashboard/DashboardPanel.vue";
@@ -75,6 +86,7 @@ const {
   wsId,
   workspaceMetadata,
   searchFieldsForType,
+  enabledApplications,
 } = model;
 const dashboardPanelRef = ref(null);
 const iterationPanelRef = ref(null);

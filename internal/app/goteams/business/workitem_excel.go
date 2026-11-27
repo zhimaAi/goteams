@@ -213,8 +213,10 @@ func buildWorkItemExcelColumnsFrom(inputs workItemExcelInputs, typeKey, lang str
 	appendOptionBuiltin(`assignee`, `workspace_field_assignee`)
 	appendBuiltin(`planned_start_date`, `workspace_field_planned_start_date`, false)
 	appendBuiltin(`planned_end_date`, `workspace_field_planned_end_date`, false)
-	if typeKey == define.TypeKeyRequirement {
+	if typeKey == define.TypeKeyRequirement || typeKey == define.TypeKeyDefect {
 		appendBuiltin(`estimated_work_hours`, `workspace_field_estimated_work_hours`, false)
+	}
+	if typeKey == define.TypeKeyRequirement {
 		appendBuiltin(`work_progress`, `workspace_field_work_progress`, true)
 		appendBuiltin(`completed_work_hours`, `workspace_field_completed_work_hours`, true)
 		appendBuiltin(`remaining_work_hours`, `workspace_field_remaining_work_hours`, true)
@@ -885,13 +887,48 @@ func importWorkItemRow(row []string, columns map[int]string, customByID map[int]
 	if err = validate.ValidatePlannedDateRange(nextStart, nextEnd); err != nil {
 		return &workItemImportRowError{message: localizedWorkItemImportError(err, lang)}
 	}
+	if err = CheckWorkItemFieldEdit(CheckWorkItemFieldEditModel{AdminId: adminId, UserId: userId, WsId: wsId, ItemId: id, Fields: workItemUpdateFieldKeys(updates, customValues, nil)}); err != nil {
+		return &workItemImportRowError{message: localizedWorkItemImportError(err, lang)}
+	}
 	if dryRun {
 		if err = ValidateCustomFieldValues(adminId, wsId, typeKey, customValues, false); err != nil {
 			return &workItemImportRowError{message: localizedWorkItemImportError(err, lang)}
 		}
 		return nil
 	}
-	if err = UpdateRequirement(adminId, wsId, cast.ToString(id), updates, customValues, userId, nil); err != nil {
+	model := UpdateRequirementModel{AdminId: adminId, UserId: userId, WorkspaceId: cast.ToInt(wsId), ItemId: id, CustomFields: CustomFieldValues(customValues)}
+	for key, value := range updates {
+		switch key {
+		case "title":
+			v := value.(string)
+			model.Title = &v
+		case "description":
+			v := value.(string)
+			model.Description = &v
+		case "status_id":
+			v := value.(int)
+			model.StatusId = &v
+		case "priority":
+			v := value.(int)
+			model.Priority = &v
+		case "assignee_ids":
+			v := value.([]int)
+			model.AssigneeIds = &v
+		case "version_id":
+			v := value.(int)
+			model.VersionId = &v
+		case "planned_start_date":
+			v := value.(int64)
+			model.PlannedStartDate = &v
+		case "planned_end_date":
+			v := value.(int64)
+			model.PlannedEndDate = &v
+		case "work_hours":
+			v := value.(float64)
+			model.EstimatedWorkHours = &v
+		}
+	}
+	if err = UpdateRequirement(model); err != nil {
 		return &workItemImportRowError{message: localizedWorkItemImportError(err, lang)}
 	}
 	return nil
@@ -899,6 +936,8 @@ func importWorkItemRow(row []string, columns map[int]string, customByID map[int]
 
 func localizedWorkItemImportError(err error, lang string) string {
 	switch {
+	case errors.Is(err, ErrFieldEditForbidden):
+		return lib_i18n.Show(lang, define.MsgForbidden)
 	case errors.Is(err, ErrPriorityNotFound):
 		return lib_i18n.Show(lang, define.MsgPriorityNotFound)
 	case errors.Is(err, ErrStatusNotFound):

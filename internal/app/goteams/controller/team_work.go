@@ -27,6 +27,10 @@ type teamWorkResponseItem struct {
 	MemberSortOrder   string   `json:"member_sort_order"`
 	PlannedStartDate  string   `json:"planned_start_date"`
 	PlannedEndDate    string   `json:"planned_end_date"`
+	StartedAtEnabled  bool     `json:"started_at_enabled"`
+	EndedAtEnabled    bool     `json:"ended_at_enabled"`
+	StartedAt         string   `json:"started_at"`
+	EndedAt           string   `json:"ended_at"`
 	CreatedAt         string   `json:"created_at"`
 	UpdatedAt         string   `json:"updated_at"`
 	Priority          string   `json:"priority"`
@@ -67,14 +71,17 @@ func toTeamWorkResponseItem(item business.TeamWorkItemModel, lang string) teamWo
 		return strconv.Itoa(*value)
 	}
 	return teamWorkResponseItem{
-		Id:                strconv.Itoa(item.Id),
-		WorkspaceId:       strconv.Itoa(item.WorkspaceId),
-		StatusId:          strconv.Itoa(item.StatusId),
-		AssigneeId:        strconv.Itoa(item.AssigneeId),
-		CreatedBy:         strconv.Itoa(item.CreatedBy),
-		MemberSortOrder:   strconv.Itoa(item.MemberSortOrder),
-		PlannedStartDate:  strconv.FormatInt(item.PlannedStartDate, 10),
-		PlannedEndDate:    strconv.FormatInt(item.PlannedEndDate, 10),
+		Id:               strconv.Itoa(item.Id),
+		WorkspaceId:      strconv.Itoa(item.WorkspaceId),
+		StatusId:         strconv.Itoa(item.StatusId),
+		AssigneeId:       strconv.Itoa(item.AssigneeId),
+		CreatedBy:        strconv.Itoa(item.CreatedBy),
+		MemberSortOrder:  strconv.Itoa(item.MemberSortOrder),
+		PlannedStartDate: strconv.FormatInt(item.PlannedStartDate, 10),
+		PlannedEndDate:   strconv.FormatInt(item.PlannedEndDate, 10),
+		StartedAtEnabled: item.StartedAtEnabled, EndedAtEnabled: item.EndedAtEnabled,
+		StartedAt:         strconv.FormatInt(item.StartedAt, 10),
+		EndedAt:           strconv.FormatInt(item.EndedAt, 10),
 		CreatedAt:         strconv.FormatInt(item.CreatedAt, 10),
 		UpdatedAt:         strconv.FormatInt(item.UpdatedAt, 10),
 		Priority:          optionalInt(item.Priority),

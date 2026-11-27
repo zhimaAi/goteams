@@ -69,6 +69,7 @@ func Initialize() {
 
 	// start the SLA aging evaluator after migrations and the HTTP service are ready.
 	business.StartSLAWorkers()
+	business.StartWarningWorkers()
 	logs.Info(`initialize sla workers finish`)
 
 	// 定时任务基础组件同样依赖迁移完成，且必须晚于注册 handler 的装配步骤。
@@ -105,4 +106,5 @@ func Shutdown() {
 	business.StopAutomationWorkers()
 	business.StopSLAWorkers()
 	business.StopLicenseRefreshLoop()
+	business.StopWarningWorkers()
 }

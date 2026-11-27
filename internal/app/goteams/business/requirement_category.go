@@ -595,6 +595,9 @@ type AssignRequirementCategoryModel struct {
 
 // AssignRequirementCategory 在一个事务内更新顶层需求及其后代的分类。
 func AssignRequirementCategory(model AssignRequirementCategoryModel) error {
+	if err := CheckWorkItemFieldEdit(CheckWorkItemFieldEditModel{AdminId: model.AdminId, UserId: model.UserId, WsId: strconv.Itoa(model.WorkspaceId), ItemId: model.RequirementId, Fields: []string{"category"}}); err != nil {
+		return err
+	}
 	if model.CategoryId < 0 {
 		return ErrRequirementCategoryNotFound
 	}

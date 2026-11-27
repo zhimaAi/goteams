@@ -90,13 +90,13 @@ func UpdateWorkspaceApplication(c *gin.Context) {
 		abortNotFound(c, lib_i18n.Show(lang, define.MsgWorkspaceApplicationNotFound))
 		return
 	}
-	if appKey == define.AppKeyDefect || appKey == define.AppKeyIteration {
+	if appKey == define.AppKeyDefect || appKey == define.AppKeyIteration || appKey == define.AppKeyReport || appKey == define.AppKeyIssueStatistics {
 		issueWorkspace, err := business.IsIssueWorkspace(adminId, cast.ToInt(wsId))
 		if err != nil {
 			abortInternal(c, lib_i18n.Show(lang, define.MsgError), `workspace_application.type`, err)
 			return
 		}
-		if issueWorkspace {
+		if (appKey == define.AppKeyIssueStatistics && !issueWorkspace) || (appKey != define.AppKeyIssueStatistics && issueWorkspace) {
 			abortForbidden(c, lib_i18n.Show(lang, define.MsgForbidden))
 			return
 		}

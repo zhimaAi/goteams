@@ -44,6 +44,17 @@ export default [
             },
           },
           {
+            path: "statistics",
+            name: "IssueStatistics",
+            component: () => import("@/views/issues/IssueStatisticsPage.vue"),
+            meta: {
+              boardTab: "statistics",
+              titleKey: "issue_statistics_title",
+              permission: "issue_statistics:view",
+              anyPermission: ["requirement:view"],
+            },
+          },
+          {
             path: "invite",
             name: "IssueInviteManage",
             component: () => import("@/views/issues/IssueInviteManagePage.vue"),

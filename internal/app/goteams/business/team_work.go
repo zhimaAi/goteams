@@ -56,6 +56,10 @@ type TeamWorkItemModel struct {
 	MemberSortOrder   int
 	PlannedStartDate  int64
 	PlannedEndDate    int64
+	StartedAtEnabled  bool
+	EndedAtEnabled    bool
+	StartedAt         int64
+	EndedAt           int64
 	CreatedAt         int64
 	UpdatedAt         int64
 	Priority          *int
@@ -136,7 +140,7 @@ func ListTeamWork(model ListTeamWorkModel) ([]TeamWorkItemModel, error) {
 	}
 	query := fmt.Sprintf(`SELECT r.id, r.workspace_id, r.title, r.type, r.priority, r.status_id,
 		au.user_id AS assignee_id, r.planned_start_date, r.planned_end_date, r.created_by,
-		r.created_at, r.updated_at,
+		r.started_at, r.ended_at, `+workItemTimeVisibilitySQL+`, r.created_at, r.updated_at,
 		w.name AS workspace_name, s.name AS status_name, s.color AS status_color,
 		s.sort_order AS status_sort_order,
 		p.name AS priority_name, p.color AS priority_color, p.sort_order AS priority_sort_order,
@@ -254,6 +258,8 @@ func teamWorkItemFromRow(row msql.Params) (TeamWorkItemModel, error) {
 	}{
 		{`planned_start_date`, &item.PlannedStartDate},
 		{`planned_end_date`, &item.PlannedEndDate},
+		{`started_at`, &item.StartedAt},
+		{`ended_at`, &item.EndedAt},
 		{`created_at`, &item.CreatedAt},
 		{`updated_at`, &item.UpdatedAt},
 	} {
@@ -288,6 +294,8 @@ func teamWorkItemFromRow(row msql.Params) (TeamWorkItemModel, error) {
 		column string
 		value  *bool
 	}{
+		{`started_at_enabled`, &item.StartedAtEnabled},
+		{`ended_at_enabled`, &item.EndedAtEnabled},
 		{`is_done`, &item.IsDone},
 		{`is_completed`, &item.IsCompleted},
 		{`can_view`, &item.CanView},

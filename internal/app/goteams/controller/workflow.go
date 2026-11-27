@@ -130,9 +130,16 @@ type statusTransitionFieldResponse struct {
 	Required int    `json:"required"`
 }
 
+type statusTransitionRuleResponse struct {
+	StatusId int                             `json:"status_id"`
+	Fields   []statusTransitionFieldResponse `json:"fields"`
+}
+
 type statusTransitionFormResponse struct {
-	Enabled int                             `json:"enabled"`
-	Fields  []statusTransitionFieldResponse `json:"fields"`
+	CustomEnabled int                             `json:"custom_enabled"`
+	StatusRules   []statusTransitionRuleResponse  `json:"status_rules"`
+	Enabled       int                             `json:"enabled"`
+	Fields        []statusTransitionFieldResponse `json:"fields"`
 }
 
 type statusTransitionFieldRequest struct {
@@ -140,9 +147,16 @@ type statusTransitionFieldRequest struct {
 	Required int    `json:"required"`
 }
 
+type statusTransitionRuleRequest struct {
+	StatusId int                            `json:"status_id"`
+	Fields   []statusTransitionFieldRequest `json:"fields"`
+}
+
 type statusTransitionFormRequest struct {
-	Enabled int                            `json:"enabled"`
-	Fields  []statusTransitionFieldRequest `json:"fields"`
+	CustomEnabled *int                           `json:"custom_enabled"`
+	StatusRules   *[]statusTransitionRuleRequest `json:"status_rules"`
+	Enabled       int                            `json:"enabled"`
+	Fields        []statusTransitionFieldRequest `json:"fields"`
 }
 
 type agingRuleResponse struct {
@@ -187,6 +201,9 @@ type agingControlFormRequest struct {
 
 // workspaceSettingsResponse is the response for workspace initial/final state config.
 type workspaceSettingsResponse struct {
+	RequirementTimeEnabled        bool                         `json:"requirement_time_enabled"`
+	RequirementStartStatusIds     []int                        `json:"requirement_start_status_ids"`
+	RequirementEndStatusIds       []int                        `json:"requirement_end_status_ids"`
 	SLAEnabled                    bool                         `json:"sla_enabled"`
 	SLAActivatedAt                int64                        `json:"sla_activated_at"`
 	RequirementInitialStatusId    int                          `json:"requirement_initial_status_id"`
@@ -206,6 +223,9 @@ type workspaceSettingsResponse struct {
 
 // updateWorkspaceSettingsRequest is the partial-update request for workspace initial/final state config.
 type updateWorkspaceSettingsRequest struct {
+	RequirementTimeEnabled        *bool                        `json:"requirement_time_enabled"`
+	RequirementStartStatusIds     *[]int                       `json:"requirement_start_status_ids"`
+	RequirementEndStatusIds       *[]int                       `json:"requirement_end_status_ids"`
 	RequirementInitialStatusId    *int                         `json:"requirement_initial_status_id"`
 	DefectInitialStatusId         *int                         `json:"defect_initial_status_id"`
 	PlanningInitialStatusId       *int                         `json:"planning_initial_status_id"`
@@ -245,7 +265,7 @@ func toListPrioritiesResponse(model business.ListPrioritiesModel) []listPrioriti
 
 // toWorkspaceSettingsResponse converts the workspace config model to the response.
 func toWorkspaceSettingsResponse(model business.WorkspaceSettingsModel) workspaceSettingsResponse {
-	return workspaceSettingsResponse{SLAEnabled: model.SLAEnabled, SLAActivatedAt: model.SLAActivatedAt,
+	return workspaceSettingsResponse{RequirementTimeEnabled: model.RequirementTimeEnabled, RequirementStartStatusIds: model.RequirementStartStatusIds, RequirementEndStatusIds: model.RequirementEndStatusIds, SLAEnabled: model.SLAEnabled, SLAActivatedAt: model.SLAActivatedAt,
 		RequirementInitialStatusId:    model.RequirementInitialStatusId,
 		DefectInitialStatusId:         model.DefectInitialStatusId,
 		PlanningInitialStatusId:       model.PlanningInitialStatusId,
@@ -267,10 +287,18 @@ func toStatusTransitionFormResponse(model business.StatusTransitionFormModel) st
 	for _, item := range model.Fields {
 		fields = append(fields, statusTransitionFieldResponse{Key: item.Key, Required: item.Required})
 	}
-	return statusTransitionFormResponse{Enabled: model.Enabled, Fields: fields}
+	rules := make([]statusTransitionRuleResponse, 0, len(model.StatusRules))
+	for _, rule := range model.StatusRules {
+		ruleFields := make([]statusTransitionFieldResponse, 0, len(rule.Fields))
+		for _, field := range rule.Fields {
+			ruleFields = append(ruleFields, statusTransitionFieldResponse{Key: field.Key, Required: field.Required})
+		}
+		rules = append(rules, statusTransitionRuleResponse{StatusId: rule.StatusId, Fields: ruleFields})
+	}
+	return statusTransitionFormResponse{Enabled: model.Enabled, Fields: fields, CustomEnabled: model.CustomEnabled, StatusRules: rules}
 }
 
-func toStatusTransitionFormModel(req *statusTransitionFormRequest) *business.StatusTransitionFormModel {
+func toStatusTransitionFormModel(req *statusTransitionFormRequest) *business.StatusTransitionFormUpdateModel {
 	if req == nil {
 		return nil
 	}
@@ -278,7 +306,19 @@ func toStatusTransitionFormModel(req *statusTransitionFormRequest) *business.Sta
 	for _, item := range req.Fields {
 		fields = append(fields, business.StatusTransitionFieldModel{Key: item.Key, Required: item.Required})
 	}
-	return &business.StatusTransitionFormModel{Enabled: req.Enabled, Fields: fields}
+	model := &business.StatusTransitionFormUpdateModel{Enabled: req.Enabled, Fields: fields, CustomEnabled: req.CustomEnabled}
+	if req.StatusRules != nil {
+		rules := make([]business.StatusTransitionRuleModel, 0, len(*req.StatusRules))
+		for _, rule := range *req.StatusRules {
+			ruleFields := make([]business.StatusTransitionFieldModel, 0, len(rule.Fields))
+			for _, field := range rule.Fields {
+				ruleFields = append(ruleFields, business.StatusTransitionFieldModel{Key: field.Key, Required: field.Required})
+			}
+			rules = append(rules, business.StatusTransitionRuleModel{StatusId: rule.StatusId, Fields: ruleFields})
+		}
+		model.StatusRules = &rules
+	}
+	return model
 }
 
 func toAgingControlFormResponse(model business.AgingControlForm) agingControlFormResponse {
@@ -430,6 +470,10 @@ func DeleteStatus(c *gin.Context) {
 		TypeKey:  c.DefaultQuery(`type`, define.TypeKeyRequirement),
 		StatusId: cast.ToInt(c.Param(`statusId`)),
 	}); err != nil {
+		if errors.Is(err, business.ErrWorkItemTimeStatusReferenced) {
+			abortConflict(c, lib_i18n.Show(lang, define.MsgWorkItemTimeStatusReferenced))
+			return
+		}
 		if errors.Is(err, business.ErrBuiltinWorkflowItem) {
 			abortConflict(c, lib_i18n.Show(lang, define.MsgBuiltinWorkflowItemDelete))
 			return
@@ -684,7 +728,7 @@ func UpdateWorkspaceSettings(c *gin.Context) {
 		touched       bool
 		permissionKey string
 	}{
-		{req.RequirementInitialStatusId != nil || req.RequirementFinalStatusIds != nil || req.RequirementCompletedStatusIds != nil || req.RequirementClosedStatusIds != nil || req.RequirementStatusTransition != nil, `requirement_setting:status`},
+		{req.RequirementTimeEnabled != nil || req.RequirementStartStatusIds != nil || req.RequirementEndStatusIds != nil || req.RequirementInitialStatusId != nil || req.RequirementFinalStatusIds != nil || req.RequirementCompletedStatusIds != nil || req.RequirementClosedStatusIds != nil || req.RequirementStatusTransition != nil, `requirement_setting:status`},
 		{req.DefectInitialStatusId != nil || req.DefectFinalStatusIds != nil || req.DefectCompletedStatusIds != nil || req.DefectClosedStatusIds != nil || req.DefectStatusTransition != nil, `defect_setting:status`},
 		{req.PlanningInitialStatusId != nil || req.PlanningFinalStatusIds != nil, `planning:edit`},
 	}
@@ -695,6 +739,7 @@ func UpdateWorkspaceSettings(c *gin.Context) {
 		}
 	}
 	if err := business.UpdateWorkspaceSettings(business.UpdateWorkspaceSettingsModel{
+		RequirementTimeEnabled: req.RequirementTimeEnabled, RequirementStartStatusIds: req.RequirementStartStatusIds, RequirementEndStatusIds: req.RequirementEndStatusIds,
 		AdminId:                       adminId,
 		WsId:                          wsId,
 		RequirementInitialStatusId:    req.RequirementInitialStatusId,
@@ -715,7 +760,7 @@ func UpdateWorkspaceSettings(c *gin.Context) {
 			abortConflict(c, lib_i18n.Show(lang, define.MsgSLAConflict))
 			return
 		}
-		if errors.Is(err, business.ErrStatusGroupsInvalid) || errors.Is(err, business.ErrStatusTransitionFormInvalid) {
+		if errors.Is(err, business.ErrWorkItemTimeSettingsInvalid) || errors.Is(err, business.ErrStatusGroupsInvalid) || errors.Is(err, business.ErrStatusTransitionFormInvalid) {
 			abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `settings.update.transition`, err)
 			return
 		}

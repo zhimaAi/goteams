@@ -355,7 +355,7 @@ Request body (JSON):
 | assignee_ids | int[] | no | Assignee ID list |
 | planned_start_date | int | no | Planned start, Unix seconds |
 | planned_end_date | int | no | Planned end, Unix seconds |
-| estimated_work_hours | number | no | Estimated hours, ≥ 0, at most two decimals; **silently zeroed for defects** |
+| estimated_work_hours | number | no | Estimated hours for requirements and defects, ≥ 0, at most two decimals |
 | custom_fields | object | no | `{"custom field ID": "value"}`; see "Appendix C" for value formats |
 | image_file_ids | int[] | no | IDs of assets uploaded earlier for the body (the `file_id` returned by 4.9). Pass them when creating the item or the files will not be attached |
 
@@ -389,7 +389,7 @@ Response example:
 Notes:
 
 - Creating without `title` returns the raw Go struct validation text (`Key: 'createApiWorkItemRequest.Title' ...`), not a readable message.
-- **Only requirements have estimated hours**: when `type` is `defect`, sending `estimated_work_hours` does not error but the server zeroes it. Check the detail response — never treat the value you sent as the result.
+- Both requirements and defects accept `estimated_work_hours`.
 - **Body format**: `description` is always HTML, whatever `description_mode` is set to. `description_mode` only declares which editor the web app opens the body with — `rich-text` (default) uses the rich-text editor, `markdown` uses the Markdown editor. Both editors read and write HTML, and the server never converts the body.
 
 To write with Markdown syntax, convert the Markdown to HTML first and put that HTML in `description`:
@@ -453,7 +453,7 @@ Notes:
 - `image_file_ids` holds the IDs of assets added in this call (the `file_id` returned by 4.9) and **must be sent together with other fields**: sending only asset IDs without changing any column makes the endpoint return 400 "参数无效" (invalid parameter), and the files are not attached.
 - Sending an empty value for `status_id`, `priority_id`, `parent_id` or `version_id` means "do not change". This endpoint cannot clear those fields.
 - `assignee_ids` set to `[]` clears the assignees; omitting it entirely leaves them alone.
-- `estimated_work_hours` is silently zeroed for defects: no error, no effect.
+- Defect updates use the same estimated-hour validation as requirements.
 - `description_mode` only picks which editor the web app opens the body with; `description` is always HTML. Send it to switch editors, omit it to leave the editor unchanged.
 - On success `data` is empty.
 

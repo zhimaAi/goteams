@@ -27,6 +27,23 @@
       </div>
     </header>
 
+    <nav
+      class="notification-categories"
+      :aria-label="$t('notification_category')"
+    >
+      <button
+        v-for="option in categoryOptions"
+        :key="option.value"
+        type="button"
+        class="notification-category"
+        :class="{ active: category === option.value }"
+        :aria-pressed="category === option.value"
+        @click="selectCategory(option.value)"
+      >
+        {{ option.label }}
+      </button>
+    </nav>
+
     <div class="notification-list" :class="{ loading }">
       <a-empty
         v-if="!loading && !items.length"
@@ -52,9 +69,7 @@
               backgroundColor: slaAvatar(item) ? undefined : '#e8f1ff',
               color: '#3157e2',
             }"
-            >{{
-              isSlaNotification(item) ? "" : initials(item.actor_name)
-            }}</a-avatar
+            >{{ actorAvatarText(item) }}</a-avatar
           >
           <span :title="actorDisplayName(item)">{{
             actorDisplayName(item)
@@ -94,7 +109,10 @@
               :icon-color="item.requirement_type_icon_color"
             />
             <a-tag
-              v-if="isSlaNotification(item)"
+              v-if="
+                isSlaNotification(item) &&
+                item.event_type !== 'warning_notification'
+              "
               class="notification-priority"
               :color="item.priority_color || undefined"
               >{{ item.priority_name || $t("sla_unspecified") }}</a-tag
@@ -105,7 +123,17 @@
                 : item.requirement_title
             }}</span>
           </button>
-          <div v-if="isSlaNotification(item)" class="notification-details">
+          <div
+            v-if="item.event_type === 'warning_notification'"
+            class="notification-details"
+          >
+            <span
+              >{{ $t("notification_warningRule") }}：{{
+                item.field_name || "—"
+              }}</span
+            >
+          </div>
+          <div v-else-if="isSlaNotification(item)" class="notification-details">
             <span
               >{{ $t("view_field_creator") }}：{{
                 item.creator_name || "—"
@@ -164,6 +192,7 @@ import RequirementDetailDrawer from "@/components/common/RequirementDetailDrawer
 import WorkItemTypePill from "@/components/common/WorkItemTypePill.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useNotificationStore } from "@/stores/notifications";
+import { getInitial } from "@/utils/avatar";
 import {
   GLOBAL_LIST_PREFERENCES_CHANGE_EVENT,
   readGlobalListPreferences,
@@ -192,20 +221,37 @@ const total = ref(0);
 const page = ref(1);
 const size = ref(20);
 const filter = ref("all");
+const category = ref("all");
 const loading = ref(false);
 const markingAll = ref(false);
 const unreadCount = ref(0);
 const filterOptions = computed(() => [
-  { label: `${$t("notification_all")} (${allTotal.value})`, value: "all" },
+  {
+    label:
+      allTotal.value === null
+        ? $t("notification_all")
+        : `${$t("notification_all")} (${allTotal.value})`,
+    value: "all",
+  },
   {
     label: `${$t("notification_unread")} (${unreadCount.value})`,
     value: "unread",
   },
 ]);
-const allTotal = ref(0);
+const categoryOptions = computed(() => [
+  { label: $t("notification_workItemChanges"), value: "work_item_changes" },
+  { label: $t("notification_urges"), value: "urges" },
+  { label: $t("notification_comments"), value: "comments" },
+  { label: $t("notification_warnings"), value: "warnings" },
+  { label: $t("notification_sla"), value: "sla" },
+  { label: $t("notification_workspaceAccess"), value: "workspace_access" },
+  { label: $t("notification_allCategories"), value: "all" },
+]);
+const allTotal = ref(null);
 const initialized = ref(false);
 const recentlyRead = ref([]);
 const autoReadIds = new Set();
+let loadVersion = 0;
 const detailItem = ref(null);
 const detailRequirementId = ref(null);
 const detailInitialTab = ref("");
@@ -229,6 +275,7 @@ const SLA_EVENT_TYPES = new Set([
   "sla_overdue",
   "sla_warning",
   "work_item_sla",
+  "warning_notification",
 ]);
 function isSlaNotification(item) {
   return SLA_EVENT_TYPES.has(item.event_type);
@@ -246,12 +293,20 @@ function actorDisplayName(item) {
     return $t("notification_issueInviteActor");
   return item.actor_name || $t("notification_unknownActor");
 }
+function actorAvatarText(item) {
+  if (isSlaNotification(item)) return "";
+  if (item.event_type === "issue_invite_urged")
+    return getInitial(actorDisplayName(item));
+  return initials(item.actor_name);
+}
 // 后端按请求语言翻译状态名；对历史遗留的包装键仅做去壳兜底。
 function slaStatusName(name) {
   if (!name) return "";
   return name.replace(/^\$\{/, "").replace(/\}$/, "");
 }
 function displayContent(item) {
+  if (item.event_type === "warning_notification")
+    return $t("notification_warningTitle", { content: item.content });
   const actor = actorDisplayName(item);
   if (item.event_type === "workspace_access_requested")
     return $t("notification_accessRequested", {
@@ -338,9 +393,11 @@ function processingDuration(item) {
   }
 }
 function projectNotification(item) {
-  return ["workspace_access_requested", "workspace_member_added"].includes(
-    item.event_type,
-  );
+  return [
+    "workspace_access_requested",
+    "workspace_member_added",
+    "warning_notification",
+  ].includes(item.event_type);
 }
 function fieldLabel(field) {
   const key = {
@@ -359,13 +416,16 @@ function fieldLabel(field) {
 }
 async function load({ preserveUnread = false } = {}) {
   if (loading.value && preserveUnread) return;
+  const version = ++loadVersion;
   loading.value = true;
   try {
     const data = await listNotifications({
       page: page.value,
       size: size.value,
       unread_only: filter.value === "unread" ? 1 : 0,
+      category: category.value,
     });
+    if (version !== loadVersion) return;
     const incoming = data?.list || [];
     const unreadIncoming = incoming.filter((item) => !item.read);
     unreadCount.value = Number(data?.unread_total || 0) + autoReadIds.size;
@@ -404,10 +464,11 @@ async function load({ preserveUnread = false } = {}) {
     const unreadIds = unreadIncoming.map((item) => item.id);
     if (unreadIds.length) {
       await notificationStore.markRead(unreadIds);
-      unreadIds.forEach((id) => autoReadIds.add(id));
+      if (version === loadVersion)
+        unreadIds.forEach((id) => autoReadIds.add(id));
     }
   } finally {
-    loading.value = false;
+    if (version === loadVersion) loading.value = false;
   }
 }
 async function markAllRead() {
@@ -443,10 +504,24 @@ function handleFilterChange() {
   recentlyRead.value = [];
   void load();
 }
+function selectCategory(value) {
+  if (category.value === value) return;
+  category.value = value;
+  handleCategoryChange();
+}
+function handleCategoryChange() {
+  page.value = 1;
+  items.value = [];
+  total.value = 0;
+  allTotal.value = null;
+  autoReadIds.clear();
+  recentlyRead.value = [];
+  void load();
+}
 function openItem(item) {
   if (projectNotification(item)) {
     if (!item.workspace_id) return;
-    router.push({
+    const route = {
       name:
         item.event_type === "workspace_access_requested"
           ? "WorkspaceSettings"
@@ -456,7 +531,12 @@ function openItem(item) {
         item.event_type === "workspace_access_requested"
           ? { section: "members" }
           : {},
-    });
+    };
+    if (item.event_type === "warning_notification") {
+      window.open(router.resolve(route).href, "_blank", "noopener,noreferrer");
+    } else {
+      router.push(route);
+    }
     return;
   }
   if (!item.workspace_id || !item.requirement_id) return;
@@ -585,6 +665,30 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
 }
+.notification-categories {
+  display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 0 28px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--app-border);
+}
+.notification-category {
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--app-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.notification-category:hover,
+.notification-category.active {
+  color: var(--ant-color-primary, #1677ff);
+}
+.notification-category.active {
+  border-bottom-color: currentColor;
+}
 .notification-list {
   flex: 1;
   min-height: 0;
@@ -690,6 +794,14 @@ onBeforeUnmount(() => {
   text-align: right;
 }
 @media (max-width: 760px) {
+  .notification-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-block: 10px;
+  }
+  .notification-header-actions {
+    flex-wrap: wrap;
+  }
   .notification-row {
     grid-template-columns: 1fr;
     gap: 4px;

@@ -35,7 +35,7 @@
           v-if="isIssueDetail"
           v-show="detailTab === 'desc'"
           class="issue-description-actions"
-          :read-only="!canEdit"
+          :read-only="!fieldEditable(detail.type, 'description')"
           @edit="descriptionEditorRef?.enterEdit()"
           @preview="descriptionEditorRef?.enterFullscreenPreview()"
         />
@@ -106,7 +106,7 @@
               <RichTextPreviewActions
                 v-if="!isIssueDetail"
                 v-show="detailTab === 'desc'"
-                :read-only="!canEdit"
+                :read-only="!fieldEditable(detail.type, 'description')"
                 @edit="descriptionEditorRef?.enterEdit()"
                 @preview="descriptionEditorRef?.enterFullscreenPreview()"
               />
@@ -129,7 +129,7 @@
               v-model:content-mode="descriptionModeDraft"
               :content-revision="draftRestoreRevision"
               :ws-id="wsId"
-              :read-only="!canEdit"
+              :read-only="!fieldEditable(detail.type, 'description')"
               :min-height="160"
               compact-actions
               external-compact-actions
@@ -179,7 +179,7 @@
                 type="button"
                 class="relation-row"
                 :class="{ 'final-status-row': isFinalStatus(item) }"
-                @click="$emit('navigate', item.id, wsId)"
+                @click="openRelatedInNewWindow(item.id)"
               >
                 <strong>{{ item.title }}</strong>
                 <StatusPill
@@ -236,7 +236,7 @@
                 type="button"
                 class="relation-row"
                 :class="{ 'final-status-row': isFinalStatus(item) }"
-                @click="$emit('navigate', item.id, wsId)"
+                @click="openRelatedInNewWindow(item.id)"
               >
                 <strong>{{ item.title }}</strong>
                 <StatusPill
@@ -287,7 +287,11 @@
               >
                 <span>{{ histories.length - index }}</span>
                 <span>{{ formatLocalDate(item.created_at, true) }}</span>
-                <span>{{ item.user_name || "-" }}</span>
+                <span>{{
+                  item.action === "issue_urge"
+                    ? $t("issue_invite_filler")
+                    : item.user_name || "-"
+                }}</span>
                 <span class="history-action" :class="item.action">{{
                   historyActionText(item)
                 }}</span>
@@ -402,8 +406,33 @@
           :attachments="attachments"
           :mention-members="members"
           :invite-filler="Boolean(detail.invite_openid)"
+          :show-satisfaction="
+            Boolean(detail.invite_openid) &&
+            workspaceMetadata?.workspace?.workspace_type === 'issue'
+          "
+          :show-urge-records="
+            Boolean(detail.invite_openid) &&
+            detail.type === 'requirement' &&
+            workspaceMetadata?.workspace?.workspace_type === 'issue'
+          "
           @refresh-attachments="reloadAttachments"
-        />
+        >
+          <template #urge-records>
+            <IssueUrgeRecords
+              :ws-id="wsId"
+              :requirement-id="requirementId"
+              :reload-key="detailReloadKey"
+            />
+          </template>
+          <template #satisfaction>
+            <SatisfactionPanel
+              :key="`${wsId}:${requirementId}`"
+              :ws-id="wsId"
+              :requirement-id="requirementId"
+              presentation="detail"
+            />
+          </template>
+        </RequirementComments>
       </div>
     </div>
 
@@ -701,6 +730,45 @@
           </div>
 
           <div
+            v-if="fieldEnabled(detail.type, 'responsible_ids')"
+            class="prop-item"
+            :style="fieldOrderStyle(detail.type, 'responsible_ids')"
+          >
+            <span class="prop-label">{{
+              $t("workspace_field_responsible")
+            }}</span>
+            <AssigneeSelect
+              v-if="
+                editingProperty === 'responsible_ids' &&
+                fieldEditable(detail.type, 'responsible_ids')
+              "
+              :value="detail.responsible_ids || []"
+              :members="members"
+              style="width: 220px"
+              :persist-selection="
+                (value) => saveAssignees(value, 'responsible_ids')
+              "
+              :placeholder="$t('workspace_field_responsible')"
+              @cancel="editingProperty = ''"
+            />
+            <span
+              v-else
+              class="prop-value"
+              :class="{
+                editable: fieldEditable(detail.type, 'responsible_ids'),
+              }"
+              @click="
+                fieldEditable(detail.type, 'responsible_ids') &&
+                (editingProperty = 'responsible_ids')
+              "
+            >
+              <AssigneeCell
+                :ids="detail.responsible_ids"
+                :names="detail.responsible_names"
+              />
+            </span>
+          </div>
+          <div
             v-if="fieldEnabled(detail.type, 'assignee')"
             class="prop-item"
             :style="fieldOrderStyle(detail.type, 'assignee')"
@@ -817,7 +885,10 @@
           >
             <span class="prop-label" :title="field.name">{{ field.name }}</span>
             <CustomFieldControl
-              v-if="canEdit && editingProperty === `custom_${field.id}`"
+              v-if="
+                fieldEditable(detail.type, `custom:${field.id}`) &&
+                editingProperty === `custom_${field.id}`
+              "
               v-model="customValues[field.id]"
               :field="field"
               :members="customFieldMembers"
@@ -830,11 +901,32 @@
             <span
               v-else
               class="prop-value"
-              :class="{ editable: canEdit }"
-              @click="canEdit && (editingProperty = `custom_${field.id}`)"
+              :class="{
+                editable: fieldEditable(detail.type, `custom:${field.id}`),
+              }"
+              @click="
+                fieldEditable(detail.type, `custom:${field.id}`) &&
+                (editingProperty = `custom_${field.id}`)
+              "
               >{{ customDisplay(field) }}</span
             >
           </div>
+          <template v-if="detail.type === 'requirement'">
+            <template v-for="key in ['started_at', 'ended_at']" :key="key">
+              <div
+                v-if="fieldEnabled(detail.type, key)"
+                class="prop-item"
+                :style="fieldOrderStyle(detail.type, key)"
+              >
+                <span class="prop-label">{{
+                  $t(`workspace_field_${key}`)
+                }}</span>
+                <span class="prop-value">{{
+                  formatLocalDate(detail[key], true)
+                }}</span>
+              </div>
+            </template>
+          </template>
           <div
             v-if="fieldEnabled(detail.type, 'created_at')"
             class="prop-item"
@@ -854,10 +946,7 @@
             <span class="prop-value">{{ detail.creator_name || "-" }}</span>
           </div>
           <div
-            v-if="
-              detail.type === 'requirement' &&
-              fieldEnabled(detail.type, 'estimated_work_hours')
-            "
+            v-if="fieldEnabled(detail.type, 'estimated_work_hours')"
             class="prop-item"
             :style="fieldOrderStyle(detail.type, 'estimated_work_hours')"
           >
@@ -998,6 +1087,8 @@ import {
   PlusOutlined,
 } from "@ant-design/icons-vue";
 import IssueProcessingRecords from "./IssueProcessingRecords.vue";
+import IssueUrgeRecords from "./IssueUrgeRecords.vue";
+import SatisfactionPanel from "@/components/satisfaction/SatisfactionPanel.vue";
 import RequirementComments from "@/components/common/RequirementComments.vue";
 import RequirementWorkLogs from "@/components/requirement/RequirementWorkLogs.vue";
 import WorkItemSLA from "@/components/work-item/WorkItemSLA.vue";
@@ -1098,6 +1189,7 @@ const {
   reloadAttachments,
   goCreate,
   openParentInNewWindow,
+  openRelatedInNewWindow,
   closeActionModal,
   handleActionSuccess,
   isFinalStatus,

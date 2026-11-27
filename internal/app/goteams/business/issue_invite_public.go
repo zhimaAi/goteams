@@ -854,6 +854,13 @@ func SubmitPublicIssue(model define.IssueInviteSubmitModel) (define.IssueInviteR
 		return define.IssueInviteRequirementModel{}, err
 	}
 
+	submissionAssignees, _ := submission.Builtins["assignee"].([]int)
+	if template.TypeKey == define.TypeKeyRequirement && len(submissionAssignees) == 0 {
+		if _, err = applyAutoAssignmentTx(tx, scope.AdminID, scope.WorkspaceID, requirementID); err != nil {
+			return define.IssueInviteRequirementModel{}, err
+		}
+	}
+
 	// Snapshot the template association for history rendering.
 	if _, err = msql.RawExec(define.Postgres, `INSERT INTO `+define.TableWorkspaceIssueRequirements+`
 		(admin_id, workspace_id, openid, requirement_id, template_id, template_key_snapshot,
@@ -875,6 +882,9 @@ func SubmitPublicIssue(model define.IssueInviteSubmitModel) (define.IssueInviteR
 		if err = recordSLACreatedTx(tx, scope.AdminID, scope.WorkspaceID, requirementID, "public_submit"); err != nil {
 			return define.IssueInviteRequirementModel{}, err
 		}
+	}
+	if err = recordSatisfactionTx(tx, scope.AdminID, scope.WorkspaceID, requirementID, -1); err != nil {
+		return define.IssueInviteRequirementModel{}, err
 	}
 	if err = tx.Commit(); err != nil {
 		logs.Error("commit public issue submit failed, err:%s", err.Error())
@@ -1505,7 +1515,7 @@ func RecallPublicIssue(model define.IssueInviteRequirementActionModel) (define.I
 	}
 	if recallStatusID != requirement.StatusID {
 		if _, err = msql.RawExec(define.Postgres, `UPDATE `+define.TableRequirements+`
-			SET status_id = $1, updated_at = $2
+			SET `+workItemTimeAssignments(1)+`, status_id = $1, updated_at = $2
 			WHERE admin_id = $3 AND workspace_id = $4 AND id = $5`, tx,
 			recallStatusID, now, scope.AdminID, scope.WorkspaceID, model.RequirementID); err != nil {
 			logs.Error("update recalled issue status failed, err:%s", err.Error())
@@ -1527,6 +1537,9 @@ func RecallPublicIssue(model define.IssueInviteRequirementActionModel) (define.I
 		if err = recordSLAUpdatedTx(tx, scope.AdminID, scope.WorkspaceID, model.RequirementID, slaBefore, "public_recall"); err != nil {
 			return define.IssueInviteRequirementModel{}, err
 		}
+	}
+	if err = recordSatisfactionTx(tx, scope.AdminID, scope.WorkspaceID, model.RequirementID, requirement.StatusID); err != nil {
+		return define.IssueInviteRequirementModel{}, err
 	}
 	if err = tx.Commit(); err != nil {
 		logs.Error("commit public issue recall failed, err:%s", err.Error())
@@ -1591,6 +1604,9 @@ func UrgePublicIssue(model define.IssueInviteRequirementActionModel) (define.Iss
 		}
 	}
 
+	if err = recordIssueUrgeTx(tx, issueUrgeWriteModel{AdminId: scope.AdminID, WorkspaceId: scope.WorkspaceID, RequirementId: model.RequirementID, Previous: association.LastUrgedAt, OccurredAt: now}); err != nil {
+		return define.IssueInviteRequirementModel{}, err
+	}
 	if _, err = msql.RawExec(define.Postgres, `UPDATE `+define.TableWorkspaceIssueRequirements+`
 		SET last_urged_at = $1, updated_at = $1
 		WHERE admin_id = $2 AND workspace_id = $3 AND openid = $4 AND requirement_id = $5`, tx,
@@ -1758,6 +1774,9 @@ func ResubmitPublicIssue(model define.IssueInviteRequirementActionModel) (define
 		if err = recordSLAResubmittedTx(tx, scope.AdminID, scope.WorkspaceID, model.RequirementID, slaBefore); err != nil {
 			return define.IssueInviteRequirementModel{}, err
 		}
+	}
+	if err = recordSatisfactionTx(tx, scope.AdminID, scope.WorkspaceID, model.RequirementID, requirement.StatusID); err != nil {
+		return define.IssueInviteRequirementModel{}, err
 	}
 	if err = tx.Commit(); err != nil {
 		logs.Error("commit public issue resubmit failed, err:%s", err.Error())

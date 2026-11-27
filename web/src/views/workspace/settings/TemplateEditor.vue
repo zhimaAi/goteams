@@ -255,11 +255,7 @@ async function loadMetas() {
   const next = [];
   const managed = [];
   for (const key of TEMPLATE_BUILTIN_KEYS) {
-    if (
-      (key === "estimated_work_hours" || key === "category") &&
-      props.typeKey !== "requirement"
-    )
-      continue;
+    if (key === "category" && props.typeKey !== "requirement") continue;
     const config = (configs || []).find((item) => item.key === key);
     const meta = {
       value: key,

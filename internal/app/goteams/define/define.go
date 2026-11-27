@@ -64,6 +64,8 @@ const (
 	TableRequirementCategories  = `requirement_categories`
 	TableRequirementComments    = `requirement_comments`
 	TableRequirementWorkLogs    = `requirement_work_logs`
+	TableWorkspaceReports       = `workspace_reports`
+	TableWorkspaceReportItems   = `workspace_report_items`
 	TableVersions               = `versions`
 	TableVersionWorkspaces      = `version_workspaces`
 	TableRoles                  = `roles`
@@ -276,6 +278,8 @@ const (
 	HistoryActionRestored = "restore"
 	// HistoryActionIssueRecall marks the status change written when the public submitter recalls an issue.
 	HistoryActionIssueRecall = "issue_recall"
+	// HistoryActionIssueUrge 记录邀填人的一次成功催单。
+	HistoryActionIssueUrge = "issue_urge"
 )
 
 // Description restore target side constants.
@@ -316,6 +320,8 @@ const (
 	NotificationEventIssueInviteUrged         = `issue_invite_urged`
 	NotificationEventWorkspaceAccessRequested = `workspace_access_requested`
 	NotificationEventWorkspaceMemberAdded     = `workspace_member_added`
+	// NotificationEventWarningNotification 表示预警规则触发的站内通知。
+	NotificationEventWarningNotification = "warning_notification"
 )
 
 // Common error message keys (corresponding to i18n language packs).
@@ -369,6 +375,7 @@ const (
 	MsgPriorityNotFound             = "workitem_priority_not_found"
 	MsgSeverityNotFound             = "workitem_severity_not_found"
 	MsgWorkflowOptionOrderChanged   = "workitem_option_order_changed"
+	MsgWorkItemTimeStatusReferenced = "workitem_time_status_referenced"
 	MsgBuiltinWorkflowItemDelete    = "workitem_builtin_delete_disabled"
 	MsgStatusTransitionInvalid      = "workitem_status_transition_invalid"
 	MsgCustomFieldRequired          = "workitem_custom_field_required"

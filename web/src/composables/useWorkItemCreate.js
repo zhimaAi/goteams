@@ -99,6 +99,7 @@ export function useWorkItemCreate() {
   const severityId = ref(undefined);
   const versionId = ref(undefined);
   const assigneeIds = ref([]);
+  const responsibleIds = ref([]);
   const plannedStartDate = ref(null);
   const plannedEndDate = ref(null);
   const estimatedWorkHours = ref(0);
@@ -177,6 +178,7 @@ export function useWorkItemCreate() {
     "planned_start_date",
     "planned_end_date",
     "assignee",
+    "responsible_ids",
     "estimated_work_hours",
     "work_progress",
     "completed_work_hours",
@@ -185,7 +187,6 @@ export function useWorkItemCreate() {
   ];
 
   const requirementWorkHourKeys = new Set([
-    "estimated_work_hours",
     "work_progress",
     "completed_work_hours",
     "remaining_work_hours",
@@ -200,6 +201,7 @@ export function useWorkItemCreate() {
       version: $t("requirement_filterVersion"),
       category: $t("workspace_field_category"),
       assignee: $t("workspace_assignee"),
+      responsible_ids: $t("workspace_field_responsible"),
       planned_start_date: $t("requirement_planStartShort"),
       planned_end_date: $t("requirement_planEndShort"),
       estimated_work_hours: $t("requirement_estimatedWorkHours"),
@@ -213,9 +215,16 @@ export function useWorkItemCreate() {
 
   function fieldEnabled(key) {
     const config = fieldConfigs.value.find((item) => item.key === key);
-    if (key === "severity_id" && (type.value !== "defect" || !config))
+    if (
+      ["severity_id", "responsible_ids"].includes(key) &&
+      (type.value !== "defect" || !config)
+    )
       return false;
-    if (requirementWorkHourKeys.has(key) && !config) return false;
+    if (
+      (key === "estimated_work_hours" || requirementWorkHourKeys.has(key)) &&
+      !config
+    )
+      return false;
     return !config || Number(config.enabled) === 1;
   }
 
@@ -239,6 +248,7 @@ export function useWorkItemCreate() {
       priority,
       versionId,
       assigneeIds,
+      responsibleIds,
       plannedStartDate,
       plannedEndDate,
       estimatedWorkHours,
@@ -475,6 +485,7 @@ export function useWorkItemCreate() {
     categoryId.value = 0;
     versionId.value = undefined;
     assigneeIds.value = [];
+    responsibleIds.value = [];
     status.value = undefined;
     priority.value = undefined;
     severityId.value = undefined;
@@ -508,6 +519,7 @@ export function useWorkItemCreate() {
     severityOptions,
     versionId,
     assigneeIds,
+    responsibleIds,
     plannedStartDate,
     plannedEndDate,
     estimatedWorkHours,
@@ -574,6 +586,7 @@ export function useWorkItemCreate() {
     severityId,
     versionId,
     assigneeIds,
+    responsibleIds,
     plannedStartDate,
     plannedEndDate,
     estimatedWorkHours,

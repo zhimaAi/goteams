@@ -17,6 +17,7 @@
         'assignee-select--compact': compact,
         'assignee-select--clearable': canClearAll,
       }"
+      :aria-busy="saving"
       :tabindex="disabled ? undefined : -1"
       @click.stop="openDropdown"
       @keydown.esc.stop.prevent="cancel"
@@ -256,6 +257,7 @@ const props = defineProps({
   placeholder: { type: String, default: "" },
   searchPlaceholder: { type: String, default: "" },
   compact: { type: Boolean, default: false },
+  persistSelection: { type: Function, default: null },
 });
 const emit = defineEmits(["commit", "cancel", "save"]);
 const { t: $t } = useI18n();
@@ -368,11 +370,13 @@ function handleOpenChange(nextOpen) {
 }
 
 async function saveDraft(nextIds) {
+  if (saving.value) return;
   const prev = [...draft.value];
   draft.value = nextIds;
   saving.value = true;
   try {
-    await emit("save", [...nextIds]);
+    if (props.persistSelection) await props.persistSelection([...nextIds]);
+    else await emit("save", [...nextIds]);
     original.value = [...nextIds];
     // Defer recording recent contacts until the dropdown closes, so the
     // recent list order stays stable during the current open session.
@@ -382,7 +386,7 @@ async function saveDraft(nextIds) {
   } catch (err) {
     // Roll back the selection on failure and keep the dropdown open.
     draft.value = prev;
-    message.error($t("assignee_saveFailed"));
+    if (!props.persistSelection) message.error($t("assignee_saveFailed"));
   } finally {
     saving.value = false;
   }

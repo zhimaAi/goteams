@@ -3,7 +3,7 @@
     <a-radio-group
       :value="filters.preset"
       :aria-label="t('dashboard_chart_time_range')"
-      size="small"
+      :size="size"
       button-style="solid"
       @update:value="selectPreset"
     >
@@ -19,6 +19,7 @@
       :value="filters.range"
       value-format="YYYY-MM-DD"
       :allow-clear="false"
+      :disabled-date="disabledDate"
       size="small"
       @change="selectRange"
     />
@@ -32,6 +33,8 @@ import { categoryDateRange } from "./dashboardCharts";
 
 const props = defineProps({
   filters: { type: Object, required: true },
+  today: { type: String, default: undefined },
+  size: { type: String, default: "small" },
 });
 const emit = defineEmits(["update:filters"]);
 const presets = [
@@ -46,11 +49,17 @@ const { t } = useDashboardI18n();
 function selectPreset(preset) {
   const range =
     preset === "custom"
-      ? categoryDateRange(props.filters.preset, props.filters.range).map(
-          (date) => date.format("YYYY-MM-DD"),
-        )
+      ? categoryDateRange(
+          props.filters.preset,
+          props.filters.range,
+          props.today,
+        ).map((date) => date.format("YYYY-MM-DD"))
       : undefined;
   emit("update:filters", { preset, range });
+}
+
+function disabledDate(date) {
+  return Boolean(props.today && date?.format("YYYY-MM-DD") > props.today);
 }
 
 function selectRange(range) {

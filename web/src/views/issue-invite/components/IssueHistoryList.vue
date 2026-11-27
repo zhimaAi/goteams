@@ -13,6 +13,7 @@
         tabindex="0"
         @click="select(item)"
         @keydown.enter="select(item)"
+        @keydown.space.prevent="select(item)"
       >
         <div class="issue-history-list__card-top">
           <h2 class="issue-history-list__title">{{ item.title }}</h2>
@@ -28,6 +29,31 @@
         <p class="issue-history-list__time">
           {{ formatLocalDate(item.created_at, true) }}
         </p>
+        <button
+          v-if="
+            ['available', 'submitted'].includes(
+              satisfactionStates[item.requirement_id],
+            )
+          "
+          type="button"
+          class="issue-history-list__satisfaction"
+          @click.stop="emit('evaluate', item.requirement_id)"
+          @keydown.enter.stop
+          @keydown.space.stop
+        >
+          <StarOutlined aria-hidden="true" />
+          <span>{{
+            $t(
+              satisfactionStates[item.requirement_id] === "submitted"
+                ? "satisfaction_view"
+                : "satisfaction_invite_entry",
+            )
+          }}</span>
+          <RightOutlined
+            class="issue-history-list__satisfaction-arrow"
+            aria-hidden="true"
+          />
+        </button>
       </div>
     </div>
     <div v-if="total > pageSize" class="issue-history-list__pagination">
@@ -43,6 +69,7 @@
 </template>
 
 <script setup>
+import { StarOutlined, RightOutlined } from "@ant-design/icons-vue";
 import { formatLocalDate } from "@/utils/date";
 
 const props = defineProps({
@@ -50,8 +77,9 @@ const props = defineProps({
   page: { type: Number, default: 1 },
   pageSize: { type: Number, default: 10 },
   total: { type: Number, default: 0 },
+  satisfactionStates: { type: Object, default: () => ({}) },
 });
-const emit = defineEmits(["select", "page-change"]);
+const emit = defineEmits(["select", "page-change", "evaluate"]);
 
 function select(item) {
   emit("select", item?.requirement_id);
@@ -155,6 +183,35 @@ function changePage(page) {
     font-size: 12px;
     line-height: 18px;
     color: #c9cdd4;
+  }
+
+  &__satisfaction {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    margin-top: 16px;
+    padding: 14px 0 0;
+    border: 0;
+    border-top: 1px solid #edf0f5;
+    background: transparent;
+    color: #4679ff;
+    text-align: left;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+
+    > :deep(.anticon) {
+      font-size: 21px;
+    }
+    &:focus-visible {
+      outline: 2px solid #4679ff;
+      outline-offset: 4px;
+    }
+  }
+  &__satisfaction-arrow {
+    margin-left: auto;
+    color: #c5cad3;
   }
 
   &__pagination {

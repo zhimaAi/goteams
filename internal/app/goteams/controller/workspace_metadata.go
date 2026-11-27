@@ -37,6 +37,7 @@ type workspaceMetadataPriorityResponse struct {
 }
 
 type workspaceMetadataFieldConfigResponse struct {
+	CanEdit   bool   `json:"can_edit"`
 	Key       string `json:"key"`
 	Label     string `json:"label"`
 	Enabled   int    `json:"enabled"`
@@ -58,6 +59,7 @@ type workspaceMetadataCustomFieldCascaderResponse struct {
 }
 
 type workspaceMetadataCustomFieldResponse struct {
+	CanEdit     bool                                           `json:"can_edit"`
 	Id          int                                            `json:"id"`
 	Key         string                                         `json:"key"`
 	Name        string                                         `json:"name"`
@@ -86,12 +88,22 @@ type workspaceMetadataStatusTransitionFieldResponse struct {
 	Required int    `json:"required"`
 }
 
+type workspaceMetadataStatusTransitionRuleResponse struct {
+	StatusId int                                              `json:"status_id"`
+	Fields   []workspaceMetadataStatusTransitionFieldResponse `json:"fields"`
+}
+
 type workspaceMetadataStatusTransitionFormResponse struct {
-	Enabled int                                              `json:"enabled"`
-	Fields  []workspaceMetadataStatusTransitionFieldResponse `json:"fields"`
+	CustomEnabled int                                              `json:"custom_enabled"`
+	StatusRules   []workspaceMetadataStatusTransitionRuleResponse  `json:"status_rules"`
+	Enabled       int                                              `json:"enabled"`
+	Fields        []workspaceMetadataStatusTransitionFieldResponse `json:"fields"`
 }
 
 type workspaceMetadataSettingsResponse struct {
+	RequirementTimeEnabled        bool                                          `json:"requirement_time_enabled"`
+	RequirementStartStatusIds     []int                                         `json:"requirement_start_status_ids"`
+	RequirementEndStatusIds       []int                                         `json:"requirement_end_status_ids"`
 	SLAEnabled                    bool                                          `json:"sla_enabled"`
 	SLAActivatedAt                int64                                         `json:"sla_activated_at"`
 	RequirementInitialStatusId    int                                           `json:"requirement_initial_status_id"`
@@ -193,7 +205,13 @@ type workspaceMetadataVersionResponse struct {
 	UpdatedAt        int64                                       `json:"updated_at"`
 }
 
+type workspaceMetadataSLAStageResponse struct {
+	Id   int    `json:"id"`
+	Name string `json:"name"`
+}
+
 type workspaceMetadataResponse struct {
+	SLAStages           []workspaceMetadataSLAStageResponse          `json:"sla_stages"`
 	Requirement         workspaceMetadataGroupResponse               `json:"requirement"`
 	Defect              workspaceMetadataGroupResponse               `json:"defect"`
 	Planning            workspaceMetadataGroupResponse               `json:"planning"`
@@ -217,6 +235,7 @@ func GetWorkspaceMetadata(c *gin.Context) {
 		permissions = []string{}
 	}
 	metadata, err := business.GetWorkspaceMetadata(business.WorkspaceMetadataModel{
+		UserId:          c.GetInt(`userId`),
 		AdminId:         adminId,
 		WorkspaceId:     wsId,
 		Lang:            lang,
@@ -244,11 +263,17 @@ func GetWorkspaceMetadata(c *gin.Context) {
 // toWorkspaceMetadataResponse converts the metadata model to the response.
 func toWorkspaceMetadataResponse(model business.WorkspaceMetadataModel, lang string) workspaceMetadataResponse {
 	workspace := model.Workspace
+	stages := make([]workspaceMetadataSLAStageResponse, 0, len(model.SLAStages))
+	for _, stage := range model.SLAStages {
+		stages = append(stages, workspaceMetadataSLAStageResponse{Id: stage.Id, Name: stage.Name})
+	}
 	return workspaceMetadataResponse{
+		SLAStages:   stages,
 		Requirement: toWorkspaceMetadataGroupResponse(model.Requirement),
 		Defect:      toWorkspaceMetadataGroupResponse(model.Defect),
 		Planning:    toWorkspaceMetadataGroupResponse(model.Planning),
 		Settings: workspaceMetadataSettingsResponse{
+			RequirementTimeEnabled: model.Settings.RequirementTimeEnabled, RequirementStartStatusIds: model.Settings.RequirementStartStatusIds, RequirementEndStatusIds: model.Settings.RequirementEndStatusIds,
 			RequirementInitialStatusId:    model.Settings.RequirementInitialStatusId,
 			DefectInitialStatusId:         model.Settings.DefectInitialStatusId,
 			PlanningInitialStatusId:       model.Settings.PlanningInitialStatusId,
@@ -286,7 +311,15 @@ func toWorkspaceMetadataStatusTransitionFormResponse(model business.StatusTransi
 	for _, item := range model.Fields {
 		fields = append(fields, workspaceMetadataStatusTransitionFieldResponse{Key: item.Key, Required: item.Required})
 	}
-	return workspaceMetadataStatusTransitionFormResponse{Enabled: model.Enabled, Fields: fields}
+	rules := make([]workspaceMetadataStatusTransitionRuleResponse, 0, len(model.StatusRules))
+	for _, rule := range model.StatusRules {
+		ruleFields := make([]workspaceMetadataStatusTransitionFieldResponse, 0, len(rule.Fields))
+		for _, field := range rule.Fields {
+			ruleFields = append(ruleFields, workspaceMetadataStatusTransitionFieldResponse{Key: field.Key, Required: field.Required})
+		}
+		rules = append(rules, workspaceMetadataStatusTransitionRuleResponse{StatusId: rule.StatusId, Fields: ruleFields})
+	}
+	return workspaceMetadataStatusTransitionFormResponse{Enabled: model.Enabled, Fields: fields, CustomEnabled: model.CustomEnabled, StatusRules: rules}
 }
 
 // toWorkspaceMetadataGroupResponse converts a single work-item type's metadata group.
@@ -320,7 +353,8 @@ func toWorkspaceMetadataGroupResponse(model business.WorkspaceMetadataGroupModel
 			options = nil
 		}
 		response.CustomFields = append(response.CustomFields, workspaceMetadataCustomFieldResponse{
-			Id: item.Id, Key: item.Key, Name: item.Name, FieldType: item.FieldType, IsRequired: item.IsRequired,
+			CanEdit: item.CanEdit,
+			Id:      item.Id, Key: item.Key, Name: item.Name, FieldType: item.FieldType, IsRequired: item.IsRequired,
 			SortOrder: item.SortOrder, IsEnabled: item.IsEnabled, Options: options,
 			IntegerOnly: item.IntegerOnly, MemberScope: item.MemberScope, RoleIds: item.RoleIds,
 			Cascader: toWorkspaceMetadataCascaderResponse(item.Cascader),

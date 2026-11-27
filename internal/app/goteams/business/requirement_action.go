@@ -213,13 +213,14 @@ type transferBuiltinConfig struct {
 }
 
 type transferItem struct {
-	Id          int
-	ParentId    int
-	Type        string
-	StatusId    int
-	PriorityId  int
-	VersionId   int
-	AssigneeIds []int
+	Id             int
+	ParentId       int
+	Type           string
+	StatusId       int
+	PriorityId     int
+	VersionId      int
+	AssigneeIds    []int
+	ResponsibleIds []int
 }
 
 // TransferWorkItem moves a work item/tree, optionally converting its type.
@@ -338,6 +339,11 @@ func TransferWorkItem(model TransferWorkItemModel) (WorkItemActionResultModel, e
 		if !matchingBuiltinConfig(`assignee`, sourceBuiltinConfigs, targetBuiltinConfigs) {
 			assignees = []int{}
 		}
+		responsibleIds := []int{}
+		if model.TargetType == define.TypeKeyDefect &&
+			matchingBuiltinConfig(`responsible_ids`, sourceBuiltinConfigs, targetBuiltinConfigs) {
+			responsibleIds = filterTransferAssignees(item.ResponsibleIds, targetMemberIds)
+		}
 		plannedStartDateSQL := `planned_start_date`
 		plannedEndDateSQL := `planned_end_date`
 		if !matchingBuiltinConfig(`planned_start_date`, sourceBuiltinConfigs, targetBuiltinConfigs) {
@@ -401,17 +407,22 @@ func TransferWorkItem(model TransferWorkItemModel) (WorkItemActionResultModel, e
 				return WorkItemActionResultModel{}, err
 			}
 		}
+		if err = revokeSatisfactionTx(tx, model.AdminId, model.SourceWorkspaceId, item.Id, "transferred"); err != nil {
+			return WorkItemActionResultModel{}, err
+		}
 		severityId, err := resolveSeverityId(tx, model.AdminId, model.TargetWorkspaceId, model.TargetType, nil)
 		if err != nil {
 			return WorkItemActionResultModel{}, err
 		}
-		updateSQL := fmt.Sprintf(`UPDATE requirements SET workspace_id=$1, type=$2, parent_id=$3,
+		updateSQL := fmt.Sprintf(`UPDATE requirements SET workspace_id=$1, type=$2::varchar, parent_id=$3,
 			category_id=$4, status_id=$5, priority=$6, version_id=$7, assignee_ids=$8,
-			planned_start_date=%s, planned_end_date=%s, updated_at=$9, completed_at=$13, sla_match=NULL, severity_id=$14
+			planned_start_date=%s, planned_end_date=%s, updated_at=$9, completed_at=$13, sla_match=NULL, severity_id=$14, responsible_ids=$15,
+            started_at=CASE WHEN workspace_id=$1 AND type=$2::varchar THEN started_at ELSE 0 END,
+            ended_at=CASE WHEN workspace_id=$1 AND type=$2::varchar THEN ended_at ELSE 0 END
 			WHERE admin_id=$10 AND workspace_id=$11 AND id=$12`, plannedStartDateSQL, plannedEndDateSQL)
 		if _, err = msql.RawExec(define.Postgres, updateSQL, tx,
 			model.TargetWorkspaceId, model.TargetType, parentId, categoryId, statusId, priorityId, versionId,
-			pq.Array(assignees), now, model.AdminId, model.SourceWorkspaceId, item.Id, completedAt, severityId); err != nil {
+			pq.Array(assignees), now, model.AdminId, model.SourceWorkspaceId, item.Id, completedAt, severityId, pq.Array(responsibleIds)); err != nil {
 			return WorkItemActionResultModel{}, err
 		}
 		if model.TargetType == define.TypeKeyRequirement {
@@ -583,6 +594,9 @@ func MergeWorkItem(model MergeWorkItemModel) (WorkItemActionResultModel, error) 
 	if _, err = msql.RawExec(define.Postgres, `DELETE FROM planning_relations WHERE admin_id=$1 AND item_id=$2`, tx, model.AdminId, model.SourceId); err != nil {
 		return WorkItemActionResultModel{}, err
 	}
+	if err = clearSatisfactionItemsTx(tx, model.AdminId, model.SourceWorkspaceId, []int64{int64(model.SourceId)}); err != nil {
+		return WorkItemActionResultModel{}, err
+	}
 	if _, err = msql.RawExec(define.Postgres, `DELETE FROM requirements WHERE admin_id=$1 AND workspace_id=$2 AND id=$3`, tx, model.AdminId, model.SourceWorkspaceId, model.SourceId); err != nil {
 		return WorkItemActionResultModel{}, err
 	}
@@ -612,14 +626,14 @@ func workItemActionPermissionKey(itemType, action string) string {
 }
 
 func lockTransferItems(tx *sql.Tx, adminId, workspaceId, itemId int, itemType string) ([]transferItem, error) {
-	query := `SELECT id,parent_id,type,status_id,priority,version_id,assignee_ids::text AS assignee_ids FROM requirements
+	query := `SELECT id,parent_id,type,status_id,priority,version_id,assignee_ids::text AS assignee_ids,responsible_ids::text AS responsible_ids FROM requirements
 		WHERE admin_id=$1 AND workspace_id=$2 AND id=$3 FOR UPDATE`
 	if itemType == define.TypeKeyRequirement {
 		query = `WITH RECURSIVE tree AS (
 			SELECT id FROM requirements WHERE admin_id=$1 AND workspace_id=$2 AND id=$3 AND type='requirement'
 			UNION ALL SELECT r.id FROM requirements r JOIN tree t ON r.parent_id=t.id
 			WHERE r.admin_id=$1 AND r.workspace_id=$2 AND r.type='requirement'
-		) SELECT r.id,r.parent_id,r.type,r.status_id,r.priority,r.version_id,r.assignee_ids::text AS assignee_ids
+		) SELECT r.id,r.parent_id,r.type,r.status_id,r.priority,r.version_id,r.assignee_ids::text AS assignee_ids,r.responsible_ids::text AS responsible_ids
 			FROM requirements r WHERE r.id IN (SELECT id FROM tree)
 			ORDER BY CASE WHEN r.id=$3 THEN 0 ELSE 1 END,r.id FOR UPDATE`
 	}
@@ -633,7 +647,11 @@ func lockTransferItems(tx *sql.Tx, adminId, workspaceId, itemId int, itemType st
 		if parseErr != nil {
 			return nil, parseErr
 		}
-		items = append(items, transferItem{Id: cast.ToInt(row[`id`]), ParentId: cast.ToInt(row[`parent_id`]), Type: row[`type`], StatusId: cast.ToInt(row[`status_id`]), PriorityId: cast.ToInt(row[`priority`]), VersionId: cast.ToInt(row[`version_id`]), AssigneeIds: assignees})
+		responsibleIds, parseErr := parsePgIntArray(row[`responsible_ids`])
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		items = append(items, transferItem{Id: cast.ToInt(row[`id`]), ParentId: cast.ToInt(row[`parent_id`]), Type: row[`type`], StatusId: cast.ToInt(row[`status_id`]), PriorityId: cast.ToInt(row[`priority`]), VersionId: cast.ToInt(row[`version_id`]), AssigneeIds: assignees, ResponsibleIds: responsibleIds})
 	}
 	return items, nil
 }

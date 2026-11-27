@@ -1,5 +1,7 @@
 import dayjs from "dayjs";
 
+export const slaMultipleOverdueColor = "#ff7875";
+
 export const chartEntries = [
   {
     key: "status",
@@ -282,10 +284,10 @@ export function categoryDateFilter(filters) {
   return { from: from.unix(), to: to.add(1, "day").unix() };
 }
 
-export function categoryDateRange(preset, range) {
+export function categoryDateRange(preset, range, asOf) {
   if (preset === "custom")
     return range.map((date) => dayjs(date).startOf("day"));
-  const today = dayjs().startOf("day");
+  const today = dayjs(asOf).startOf("day");
   const start = {
     today,
     week: today.subtract(6, "day"),

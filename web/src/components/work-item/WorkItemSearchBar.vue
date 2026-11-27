@@ -11,6 +11,8 @@
       :class="{
         'search-condition--title': condition.field === 'title',
         'search-condition--template': condition.field === 'template',
+        'search-condition--sla': condition.field === 'sla_status',
+        'search-condition--urge': condition.field === 'urge_status',
         'search-condition--member':
           fieldMeta(condition.field).control === 'person',
         'search-condition--date': fieldMeta(condition.field).control === 'date',
@@ -126,6 +128,13 @@
           :bordered="false"
           :show-search="condition.field === 'template'"
           :aria-label="fieldLabel(condition.field)"
+          :title="
+            condition.field === 'sla_status'
+              ? (fieldMeta(condition.field).options || []).find(
+                  (option) => option.value === condition.values[0],
+                )?.label
+              : undefined
+          "
           allow-clear
           :filter-option="filterOption"
           @change="(value) => updateSelectCondition(condition.field, value)"
@@ -208,12 +217,22 @@
       </template>
     </a-popover>
 
-    <a-button class="save-view-button" @click="$emit('save-as')">
+    <a-button
+      v-if="canSaveView"
+      class="save-view-button"
+      @click="$emit('save-as')"
+    >
       <SaveOutlined /> {{ $t("search_save_as_view") }}
     </a-button>
     <a-button class="search-clear-button" @click="clearValues">
       <DeleteOutlined /> {{ $t("common_clearFilter") }}
     </a-button>
+    <span
+      v-if="conditionErrors.length"
+      role="alert"
+      class="search-condition__error"
+      >{{ conditionErrors.join(" · ") }}</span
+    >
   </div>
 </template>
 
@@ -251,6 +270,7 @@ import {
 const props = defineProps({
   filters: { type: Object, required: true },
   typeKey: { type: String, default: "requirement" },
+  canSaveView: { type: Boolean, default: true },
   fields: { type: Array, default: () => [] },
   statuses: { type: Array, default: () => [] },
   priorities: { type: Array, default: () => [] },
@@ -295,7 +315,9 @@ const selectedFields = computed(
 const remainingFields = computed(() =>
   props.fields.filter(
     (field) =>
-      field.field !== "title" && !selectedFields.value.has(field.field),
+      field.field !== "title" &&
+      field.available !== false &&
+      !selectedFields.value.has(field.field),
   ),
 );
 
@@ -312,7 +334,7 @@ const remainingFieldGroups = computed(() => [
     key: "builtin",
     label: t("search_basic_fields"),
     fields: filteredRemainingFields.value.filter(
-      (field) => field.kind !== "custom",
+      (field) => field.kind !== "custom" && field.kind !== "other",
     ),
   },
   {
@@ -320,6 +342,13 @@ const remainingFieldGroups = computed(() => [
     label: t("search_custom_fields"),
     fields: filteredRemainingFields.value.filter(
       (field) => field.kind === "custom",
+    ),
+  },
+  {
+    key: "other",
+    label: t("search_other_fields"),
+    fields: filteredRemainingFields.value.filter(
+      (field) => field.kind === "other",
     ),
   },
 ]);
@@ -350,6 +379,21 @@ function fieldMeta(field) {
     }
   );
 }
+
+function conditionError(condition) {
+  if (condition.field !== "sla_status" || !condition.values?.length) return "";
+  const descriptor = fieldMeta(condition.field);
+  if (descriptor.available === false) return t("issue_filter_sla_disabled");
+  if (
+    !descriptor.options?.some((option) => option.value === condition.values[0])
+  )
+    return t("issue_filter_stage_unavailable");
+  return "";
+}
+
+const conditionErrors = computed(() => [
+  ...new Set(displayConditions.value.map(conditionError).filter(Boolean)),
+]);
 
 function conditionHasValue(condition) {
   return (
@@ -502,6 +546,12 @@ function filterOption(input, option) {
 </script>
 
 <style scoped lang="less">
+.search-condition__error {
+  flex-basis: 100%;
+  color: var(--ant-color-error, #ff4d4f);
+  font-size: 12px;
+}
+
 .work-item-search-bar {
   display: flex;
   align-items: center;
@@ -541,6 +591,14 @@ function filterOption(input, option) {
 
 .search-condition--template {
   width: 176px;
+}
+
+.search-condition--sla {
+  width: 180px;
+}
+
+.search-condition--urge {
+  width: 160px;
 }
 
 .template-source-tag {

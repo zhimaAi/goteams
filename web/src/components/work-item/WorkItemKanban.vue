@@ -119,7 +119,7 @@
             :key="item.id"
             class="kanban-card"
             :class="{
-              draggable: canEdit,
+              draggable: canEdit && fieldEditable.status,
               'detail-selected-card':
                 String(item.id) === String(selectedItemId),
             }"
@@ -695,7 +695,7 @@ async function handleCardDragEnd(event) {
     reload();
   } finally {
     statusUpdatePending = false;
-    setSortablesDisabled(!props.canEdit);
+    setSortablesDisabled(!props.canEdit || !props.fieldEditable.status);
   }
 }
 
@@ -704,7 +704,8 @@ async function setupSortables() {
   await nextTick();
   if (setupToken !== sortableSetupToken) return;
   destroySortables();
-  if (!props.canEdit || !kanbanColumnsRef.value) return;
+  if (!props.canEdit || !props.fieldEditable.status || !kanbanColumnsRef.value)
+    return;
 
   const groupName = `work-item-kanban-${props.wsId}-${props.typeKey}`;
   sortableInstances = Array.from(
@@ -936,6 +937,7 @@ watch(
 watch(
   () => [
     props.canEdit,
+    props.fieldEditable.status,
     props.wsId,
     props.typeKey,
     visibleStatuses.value.map((status) => status.id).join(","),

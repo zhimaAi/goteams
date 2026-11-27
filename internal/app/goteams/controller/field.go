@@ -19,12 +19,16 @@ import (
 
 // listFieldConfigsResponseItem is a built-in field config list item.
 type listFieldConfigsResponseItem struct {
-	Key       string `json:"key"`
-	Label     string `json:"label"`
-	Enabled   int    `json:"enabled"`
-	Editable  int    `json:"editable"`
-	Locked    int    `json:"locked"`
-	SortOrder int    `json:"sort_order"`
+	EditScope         string `json:"edit_scope"`
+	EditRoleIds       []int  `json:"edit_role_ids"`
+	CanEdit           bool   `json:"can_edit"`
+	SupportsEditRoles bool   `json:"supports_edit_roles"`
+	Key               string `json:"key"`
+	Label             string `json:"label"`
+	Enabled           int    `json:"enabled"`
+	Editable          int    `json:"editable"`
+	Locked            int    `json:"locked"`
+	SortOrder         int    `json:"sort_order"`
 }
 
 // saveFieldConfigRequestItem is one item in a batch save of built-in field configs.
@@ -72,18 +76,22 @@ type customFieldCascaderRequest struct {
 
 // listCustomFieldsResponseItem is a custom field list item.
 type listCustomFieldsResponseItem struct {
-	Id          int                           `json:"id"`
-	Key         string                        `json:"key"`
-	Name        string                        `json:"name"`
-	FieldType   string                        `json:"field_type"`
-	IsRequired  int                           `json:"is_required"`
-	SortOrder   int                           `json:"sort_order"`
-	IsEnabled   int                           `json:"is_enabled"`
-	Options     []customFieldOptionResponse   `json:"options"`
-	IntegerOnly int                           `json:"integer_only"`
-	MemberScope string                        `json:"member_scope,omitempty"`
-	RoleIds     []int                         `json:"role_ids,omitempty"`
-	Cascader    []customFieldCascaderResponse `json:"cascader,omitempty"`
+	EditScope         string                        `json:"edit_scope"`
+	EditRoleIds       []int                         `json:"edit_role_ids"`
+	CanEdit           bool                          `json:"can_edit"`
+	SupportsEditRoles bool                          `json:"supports_edit_roles"`
+	Id                int                           `json:"id"`
+	Key               string                        `json:"key"`
+	Name              string                        `json:"name"`
+	FieldType         string                        `json:"field_type"`
+	IsRequired        int                           `json:"is_required"`
+	SortOrder         int                           `json:"sort_order"`
+	IsEnabled         int                           `json:"is_enabled"`
+	Options           []customFieldOptionResponse   `json:"options"`
+	IntegerOnly       int                           `json:"integer_only"`
+	MemberScope       string                        `json:"member_scope,omitempty"`
+	RoleIds           []int                         `json:"role_ids,omitempty"`
+	Cascader          []customFieldCascaderResponse `json:"cascader,omitempty"`
 }
 
 type customFieldCascaderResponse struct {
@@ -132,6 +140,7 @@ func toListFieldConfigsResponse(model business.ListFieldConfigsModel) []listFiel
 	items := make([]listFieldConfigsResponseItem, 0, len(model.Items))
 	for _, item := range model.Items {
 		items = append(items, listFieldConfigsResponseItem{
+			EditScope: item.EditScope, EditRoleIds: item.EditRoleIds, CanEdit: item.CanEdit, SupportsEditRoles: item.SupportsEditRoles,
 			Key:       item.Key,
 			Label:     item.Label,
 			Enabled:   item.Enabled,
@@ -148,6 +157,7 @@ func toListCustomFieldsResponse(model business.ListCustomFieldsModel) []listCust
 	items := make([]listCustomFieldsResponseItem, 0, len(model.Items))
 	for _, item := range model.Items {
 		items = append(items, listCustomFieldsResponseItem{
+			EditScope: item.EditScope, EditRoleIds: item.EditRoleIds, CanEdit: item.CanEdit, SupportsEditRoles: item.SupportsEditRoles,
 			Id:          item.Id,
 			Key:         item.Key,
 			Name:        item.Name,
@@ -257,7 +267,7 @@ func ListFieldConfigs(c *gin.Context) {
 	lang := lib_i18n.GetLang(c)
 
 	model, err := business.ListFieldConfigs(business.ListFieldConfigsModel{
-		AdminId: c.GetInt(`adminId`),
+		UserId: c.GetInt(`userId`), AdminId: c.GetInt(`adminId`),
 		WsId:    c.Param(`wsId`),
 		TypeKey: c.DefaultQuery(`type`, define.TypeKeyRequirement),
 		Lang:    lang,
@@ -366,7 +376,7 @@ func ListCustomFields(c *gin.Context) {
 	lang := lib_i18n.GetLang(c)
 
 	model, err := business.ListCustomFields(business.ListCustomFieldsModel{
-		AdminId: c.GetInt(`adminId`),
+		UserId: c.GetInt(`userId`), AdminId: c.GetInt(`adminId`),
 		WsId:    c.Param(`wsId`),
 		TypeKey: c.DefaultQuery(`type`, define.TypeKeyRequirement),
 	})
@@ -505,4 +515,32 @@ func DeleteCustomField(c *gin.Context) {
 		Code:    define.CodeSuccess,
 		Message: lib_i18n.Show(lang, define.MsgSuccess),
 	})
+}
+
+type saveFieldEditPolicyRequest struct {
+	Kind        string `json:"kind"`
+	Key         string `json:"key"`
+	Id          int    `json:"id"`
+	EditScope   string `json:"edit_scope"`
+	EditRoleIds []int  `json:"edit_role_ids"`
+}
+
+// SaveFieldEditPolicy 保存字段授权，不覆盖其他字段配置。
+func SaveFieldEditPolicy(c *gin.Context) {
+	lang := lib_i18n.GetLang(c)
+	var req saveFieldEditPolicyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), "field_edit_policy.bind", err)
+		return
+	}
+	err := business.SaveFieldEditPolicy(business.SaveFieldEditPolicyModel{AdminId: c.GetInt("adminId"), WsId: c.Param("wsId"), TypeKey: c.DefaultQuery("type", define.TypeKeyRequirement), Kind: req.Kind, Key: req.Key, Id: req.Id, Policy: business.FieldEditPolicyModel{EditScope: req.EditScope, EditRoleIds: req.EditRoleIds}})
+	if err != nil {
+		if errors.Is(err, business.ErrFieldEditPolicyInvalid) {
+			abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), "field_edit_policy.save", err)
+		} else {
+			abortInternal(c, lib_i18n.Show(lang, define.MsgError), "field_edit_policy.save", err)
+		}
+		return
+	}
+	c.JSON(http.StatusOK, define.Response{Code: define.CodeSuccess, Message: lib_i18n.Show(lang, define.MsgSuccess)})
 }

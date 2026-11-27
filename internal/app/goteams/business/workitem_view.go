@@ -79,6 +79,9 @@ func ValidateWorkItemFilterFields(adminId int, wsId, typeKey string, root ViewFi
 			}
 			return nil
 		}
+		if node.Field == define.ViewFilterFieldUrgeStatus || node.Field == define.ViewFilterFieldSLAStatus {
+			return validateIssueFilterFields(adminId, wsId, typeKey, node)
+		}
 		if strings.HasPrefix(node.Field, define.ViewFilterCustomPrefix) {
 			field, ok := customFields[cast.ToInt(strings.TrimPrefix(node.Field, define.ViewFilterCustomPrefix))]
 			if !ok {
@@ -990,6 +993,9 @@ func (b *viewFilterBuilder) buildNode(node ViewFilterNode, depth int) (string, e
 
 // buildLeaf renders one field condition.
 func (b *viewFilterBuilder) buildLeaf(node ViewFilterNode) (string, error) {
+	if node.Field == define.ViewFilterFieldUrgeStatus || node.Field == define.ViewFilterFieldSLAStatus {
+		return b.buildIssueFilter(node)
+	}
 	if (node.Operator == define.ViewFilterOperatorIn || node.Operator == define.ViewFilterOperatorNotIn) && len(node.Values) == 0 {
 		return ``, nil
 	}

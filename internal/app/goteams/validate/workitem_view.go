@@ -87,6 +87,9 @@ func ValidateViewFiltersForType(root define.ViewFilterNode, typeKey string) erro
 	if typeKey == define.TypeKeyDefect && viewFilterContainsField(root, define.ViewFilterFieldCategory) {
 		return ErrViewFiltersInvalid
 	}
+	if typeKey != define.TypeKeyRequirement && (viewFilterContainsField(root, define.ViewFilterFieldUrgeStatus) || viewFilterContainsField(root, define.ViewFilterFieldSLAStatus)) {
+		return ErrViewFiltersInvalid
+	}
 	return nil
 }
 
@@ -174,5 +177,45 @@ func validateViewFilterNode(node define.ViewFilterNode, depth int, nodeCount *in
 			return ErrViewFiltersInvalid
 		}
 	}
+	if node.Field == define.ViewFilterFieldUrgeStatus || node.Field == define.ViewFilterFieldSLAStatus {
+		return ValidateIssueFilter(node)
+	}
 	return nil
+}
+
+// ParseSLAFilterValue 解析进入 SLA 或具体阶段的完成结果；阶段名称不作为持久化标识。
+func ParseSLAFilterValue(value string) (int, string, error) {
+	if value == "entered" {
+		return 0, value, nil
+	}
+	parts := strings.Split(value, ":")
+	if len(parts) != 2 || (parts[0] != "completed_late" && parts[0] != "completed_on_time") {
+		return 0, "", ErrViewFiltersInvalid
+	}
+	id, err := strconv.Atoi(parts[1])
+	if err != nil || id <= 0 || strconv.Itoa(id) != parts[1] {
+		return 0, "", ErrViewFiltersInvalid
+	}
+	return id, parts[0], nil
+}
+
+// ValidateIssueFilter 校验工单专属单选筛选值，空值表示不限制。
+func ValidateIssueFilter(node define.ViewFilterNode) error {
+	if node.Field != define.ViewFilterFieldUrgeStatus && node.Field != define.ViewFilterFieldSLAStatus {
+		return ErrViewFiltersInvalid
+	}
+	if node.Operator != define.ViewFilterOperatorIn || len(node.Values) > 1 {
+		return ErrViewFiltersInvalid
+	}
+	if len(node.Values) == 0 {
+		return nil
+	}
+	if node.Field == define.ViewFilterFieldUrgeStatus {
+		if node.Values[0] != "urged" && node.Values[0] != "not_urged" {
+			return ErrViewFiltersInvalid
+		}
+		return nil
+	}
+	_, _, err := ParseSLAFilterValue(node.Values[0])
+	return err
 }

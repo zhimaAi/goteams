@@ -1,6 +1,7 @@
 import dayjs from "dayjs";
 import { getRequirement } from "@/api/workspace";
 import { parseCustomFieldValue } from "@/utils/customField";
+import { templateAssigneeIds } from "@/utils/workItemTemplate";
 
 export function useCopyWorkItemSource(ctx) {
   function fieldPrefillable(key) {
@@ -54,14 +55,16 @@ export function useCopyWorkItemSource(ctx) {
         .filter((id) =>
           ctx.members.value.some((member) => Number(member.user_id) === id),
         );
+    if (fieldPrefillable("responsible_ids"))
+      ctx.responsibleIds.value = templateAssigneeIds(
+        source.responsible_ids,
+        ctx.members.value,
+      );
     if (fieldPrefillable("planned_start_date"))
       ctx.plannedStartDate.value = copiedDate(source.planned_start_date);
     if (fieldPrefillable("planned_end_date"))
       ctx.plannedEndDate.value = copiedDate(source.planned_end_date);
-    if (
-      ctx.type.value === "requirement" &&
-      fieldPrefillable("estimated_work_hours")
-    )
+    if (fieldPrefillable("estimated_work_hours"))
       ctx.estimatedWorkHours.value = Number(source.estimated_work_hours) || 0;
     ctx.customValues.value = Object.fromEntries(
       ctx.customFields.value.map((field) => [

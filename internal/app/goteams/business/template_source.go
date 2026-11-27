@@ -119,13 +119,13 @@ var templateTables = []TemplateTable{
 	{
 		Name:    SrcWorkspaceFieldConfigs,
 		Table:   define.TableWorkItemFieldConfigs,
-		Columns: []string{`type_key`, `field_key`, `is_enabled`, `is_editable`, `is_locked`, `sort_order`},
+		Columns: []string{`type_key`, `field_key`, `is_enabled`, `is_editable`, `is_locked`, `sort_order`, `edit_scope`, `edit_role_ids`},
 		OrderBy: `ORDER BY id ASC`,
 	},
 	{
 		Name:    SrcWorkspaceCustomFields,
 		Table:   define.TableCustomFields,
-		Columns: []string{`id`, `type_key`, `key`, `name`, `field_type`, `is_required`, `sort_order`, `is_enabled`, `config_json`},
+		Columns: []string{`id`, `type_key`, `key`, `name`, `field_type`, `is_required`, `sort_order`, `is_enabled`, `config_json`, `edit_scope`, `edit_role_ids`},
 		OrderBy: `ORDER BY id ASC`,
 	},
 	{

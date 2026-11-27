@@ -14,7 +14,9 @@
       </div>
     </template>
 
-    <template v-else-if="item.source_type === 'upload' && item.content_mode === 'file'">
+    <template
+      v-else-if="item.source_type === 'upload' && item.content_mode === 'file'"
+    >
       <KbUploadedFileViewer
         :item="item"
         :ws-id="wsId"
@@ -79,14 +81,14 @@
             danger
             @click="conflictOpen = true"
           >
-            {{ $t('kb_resolveConflict') }}
+            {{ $t("kb_resolveConflict") }}
           </a-button>
           <a-button
             v-if="saveStatus === 'error'"
             size="small"
             @click="autosave.resume()"
           >
-            {{ $t('kb_retrySave') }}
+            {{ $t("kb_retrySave") }}
           </a-button>
           <a-button
             type="primary"
@@ -94,20 +96,17 @@
             :disabled="finishing || copySaving"
             @click="finishEdit"
           >
-            {{ $t('common_save') }}
+            {{ $t("common_save") }}
           </a-button>
           <a-button
             :loading="copySaving"
             :disabled="finishing || copySaving"
             @click="saveAsCopy"
           >
-            {{ $t('kb_saveAsCopy') }}
+            {{ $t("kb_saveAsCopy") }}
           </a-button>
-          <a-button
-            :disabled="finishing || copySaving"
-            @click="cancelEdit"
-          >
-            {{ $t('common_cancel') }}
+          <a-button :disabled="finishing || copySaving" @click="cancelEdit">
+            {{ $t("common_cancel") }}
           </a-button>
         </div>
       </Teleport>
@@ -133,21 +132,21 @@
         :width="520"
       >
         <p class="kb-modal-text">
-          {{ $t('kb_conflictDesc') }}
+          {{ $t("kb_conflictDesc") }}
           <template v-if="autosave.conflict">
-            （{{ $t('kb_conflictServerTime') }}
+            （{{ $t("kb_conflictServerTime") }}
             {{ formatTime(autosave.conflict.updated_at) }}）
           </template>
         </p>
         <div class="kb-conflict-actions">
           <a-button type="primary" @click="loadServerContent">
-            {{ $t('kb_conflictLoadServer') }}
+            {{ $t("kb_conflictLoadServer") }}
           </a-button>
           <a-button @click="saveAsCopy">
-            {{ $t('kb_conflictSaveAsCopy') }}
+            {{ $t("kb_conflictSaveAsCopy") }}
           </a-button>
           <a-button @click="conflictOpen = false">
-            {{ $t('kb_conflictLater') }}
+            {{ $t("kb_conflictLater") }}
           </a-button>
         </div>
       </a-modal>
@@ -156,18 +155,18 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { message } from 'ant-design-vue'
+import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
+import { message } from "ant-design-vue";
 import {
   CheckCircleFilled,
   ExclamationCircleFilled,
   LoadingOutlined,
   WarningFilled,
-} from '@ant-design/icons-vue'
-import RichTextEditor from '@/components/common/RichTextEditor.vue'
-import KbUploadedFileViewer from './KbUploadedFileViewer.vue'
-import { markdownToHtml } from '@/components/common/rich-text-editor/markdownContent'
+} from "@ant-design/icons-vue";
+import RichTextEditor from "@/components/common/RichTextEditor.vue";
+import KbUploadedFileViewer from "./KbUploadedFileViewer.vue";
+import { markdownToHtml } from "@/components/common/rich-text-editor/markdownContent";
 import {
   createKnowledgeDocument,
   createKnowledgeVersion,
@@ -175,82 +174,94 @@ import {
   uploadKnowledgeFile,
   uploadKnowledgeImage,
   uploadKnowledgeVideo,
-} from '@/api/knowledgeBase'
-import { useKnowledgeStore } from '@/stores/knowledge'
-import { useAuthStore } from '@/stores/auth'
-import { useKnowledgeAutosave } from '@/composables/useKnowledgeAutosave'
-import { useKnowledgeDraft } from '@/composables/useKnowledgeDraft'
-import { formatLocalDate } from '@/utils/date'
+} from "@/api/knowledgeBase";
+import { useKnowledgeStore } from "@/stores/knowledge";
+import { useAuthStore } from "@/stores/auth";
+import { useKnowledgeAutosave } from "@/composables/useKnowledgeAutosave";
+import { useKnowledgeDraft } from "@/composables/useKnowledgeDraft";
+import { formatLocalDate } from "@/utils/date";
 
 const props = defineProps({
   item: { type: Object, default: null },
   wsId: { type: [Number, String], default: 0 },
   editing: { type: Boolean, default: false },
-})
+});
 
-const emit = defineEmits(['done', 'cancel', 'edit', 'switch-document', 'title-changed', 'download', 'converted'])
+const emit = defineEmits([
+  "done",
+  "cancel",
+  "edit",
+  "switch-document",
+  "title-changed",
+  "download",
+  "converted",
+]);
 
-const { t: $t } = useI18n()
-const store = useKnowledgeStore()
-const authStore = useAuthStore()
+const { t: $t } = useI18n();
+const store = useKnowledgeStore();
+const authStore = useAuthStore();
 
-const autosave = useKnowledgeAutosave(props.wsId)
+const autosave = useKnowledgeAutosave(props.wsId);
 const draft = useKnowledgeDraft({
   userId: authStore.userInfo?.id || 0,
   wsId: props.wsId,
-})
+});
 
-const editorRef = ref(null)
-const editorContent = ref('')
-const editorMode = ref('rich-text')
-const sessionId = ref('')
-const draftOpen = ref(false)
-const conflictOpen = ref(false)
-const finishing = ref(false)
-const copySaving = ref(false)
-const pendingDraft = ref(null)
+const editorRef = ref(null);
+const editorContent = ref("");
+const editorMode = ref("rich-text");
+const sessionId = ref("");
+const draftOpen = ref(false);
+const conflictOpen = ref(false);
+const finishing = ref(false);
+const copySaving = ref(false);
+const pendingDraft = ref(null);
 const draftText = computed(() => {
-  if (!pendingDraft.value) return ''
-  const base = pendingDraft.value.baseRevision
-  const current = props.item?.revision ?? 0
-  if (Number(base) < Number(current)) return $t('kb_draftStaleText')
-  return $t('kb_draftRestoreText')
-})
+  if (!pendingDraft.value) return "";
+  const base = pendingDraft.value.baseRevision;
+  const current = props.item?.revision ?? 0;
+  if (Number(base) < Number(current)) return $t("kb_draftStaleText");
+  return $t("kb_draftRestoreText");
+});
 
-const markdownHtml = computed(() => markdownToHtml(props.item?.content || ''))
+const markdownHtml = computed(() => markdownToHtml(props.item?.content || ""));
 
-const saveStatus = computed(() => autosave.status.value)
+const saveStatus = computed(() => autosave.status.value);
 const saveStatusText = computed(() => {
   switch (autosave.status.value) {
-    case 'saving':
-      return $t('kb_saveSaving')
-    case 'unsaved':
-      return $t('kb_saveUnsaved')
-    case 'error':
-      return $t('kb_saveError')
-    case 'conflict':
-      return $t('kb_saveConflict')
+    case "saving":
+      return $t("kb_saveSaving");
+    case "unsaved":
+      return $t("kb_saveUnsaved");
+    case "error":
+      return $t("kb_saveError");
+    case "conflict":
+      return $t("kb_saveConflict");
     default:
-      return $t('kb_saveSaved')
+      return $t("kb_saveSaved");
   }
-})
+});
 
 function newSessionId() {
-  return (crypto.randomUUID?.() || `kb-${Date.now()}-${Math.random().toString(16).slice(2)}`)
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === "function") {
+    return cryptoApi.randomUUID();
+  }
+  return `kb-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function getPayload() {
   return {
-    title: props.item?.title || '',
+    title: props.item?.title || "",
     content: editorContent.value,
     contentMode: editorMode.value,
-  }
+  };
 }
 
 // 预览界面双击进入编辑态（权限校验与头部编辑按钮一致）。
 function onPreviewDblClick() {
-  if (props.editing || !props.item || !store.canEditItem(props.item)) return
-  emit('edit')
+  if (props.editing || !props.item || !store.canEditItem(props.item)) return;
+  emit("edit");
 }
 
 function getDraftRecord(synced) {
@@ -262,7 +273,7 @@ function getDraftRecord(synced) {
     baseRevision: autosave.revision.value,
     serverHash: autosave.serverHash.value,
     synced,
-  })
+  });
 }
 
 function syncCurrentItem(overrides = {}) {
@@ -275,19 +286,19 @@ function syncCurrentItem(overrides = {}) {
     updated_at: autosave.updatedAt.value || props.item.updated_at,
     updated_by: autosave.updatedBy.value || props.item.updated_by,
     ...overrides,
-  })
+  });
 }
 
 function onContentChange(value) {
-  editorContent.value = value
-  autosave.markDirty(getPayload)
-  draft.schedule(props.item.id, () => getDraftRecord(false))
+  editorContent.value = value;
+  autosave.markDirty(getPayload);
+  draft.schedule(props.item.id, () => getDraftRecord(false));
 }
 
 function onContentModeChange(mode) {
-  editorMode.value = mode
-  autosave.markDirty(getPayload)
-  draft.schedule(props.item.id, () => getDraftRecord(false))
+  editorMode.value = mode;
+  autosave.markDirty(getPayload);
+  draft.schedule(props.item.id, () => getDraftRecord(false));
 }
 
 function imageUploader(file) {
@@ -295,7 +306,7 @@ function imageUploader(file) {
     url: res.url,
     name: res.original_name,
     size: res.file_size,
-  }))
+  }));
 }
 
 function fileUploader(file) {
@@ -303,7 +314,7 @@ function fileUploader(file) {
     url: res.url,
     name: res.original_name,
     size: res.file_size,
-  }))
+  }));
 }
 
 function videoUploader(file) {
@@ -311,194 +322,210 @@ function videoUploader(file) {
     url: res.url,
     name: res.original_name,
     size: res.file_size,
-  }))
+  }));
 }
 
 // ---- Draft restore ----
 async function checkDraft() {
-  if (!props.item) return
-  pendingDraft.value = null
-  const record = await draft.read(props.item.id)
-  if (!record) return
+  if (!props.item) return;
+  pendingDraft.value = null;
+  const record = await draft.read(props.item.id);
+  if (!record) return;
   if (record.synced && record.serverHash === props.item.content_hash) {
     // Local draft matches the server state; the server content wins silently.
-    return
+    return;
   }
   if (!record.synced) {
-    pendingDraft.value = record
-    draftOpen.value = true
+    pendingDraft.value = record;
+    draftOpen.value = true;
   }
 }
 
 function restoreDraft() {
-  const record = pendingDraft.value
+  const record = pendingDraft.value;
   if (record) {
-    editorContent.value = record.content || ''
-    editorMode.value = record.contentMode === 'markdown' ? 'markdown' : 'rich-text'
-    autosave.start(props.item.id, sessionId.value, props.item.revision, props.item.content_hash)
-    autosave.markDirty(getPayload)
+    editorContent.value = record.content || "";
+    editorMode.value =
+      record.contentMode === "markdown" ? "markdown" : "rich-text";
+    autosave.start(
+      props.item.id,
+      sessionId.value,
+      props.item.revision,
+      props.item.content_hash,
+    );
+    autosave.markDirty(getPayload);
   }
-  pendingDraft.value = null
-  draftOpen.value = false
+  pendingDraft.value = null;
+  draftOpen.value = false;
 }
 
 function discardDraft() {
-  draft.remove(props.item.id).catch(() => {})
-  pendingDraft.value = null
-  draftOpen.value = false
+  draft.remove(props.item.id).catch(() => {});
+  pendingDraft.value = null;
+  draftOpen.value = false;
 }
 
 // ---- Autosave side effects ----
 watch(
   () => autosave.status.value,
   async (status) => {
-    if (!props.item) return
-    if (status === 'saved') {
+    if (!props.item) return;
+    if (status === "saved") {
       // Mark the draft synced with the confirmed revision/hash.
-      draft.schedule(props.item.id, () =>
-        getDraftRecord(true),
-      )
-      await draft.flush(props.item.id)
-      syncCurrentItem()
-    } else if (status === 'conflict') {
-      draft.schedule(props.item.id, () => getDraftRecord(false))
-      await draft.flush(props.item.id)
-      conflictOpen.value = true
-    } else if (status === 'error') {
-      draft.schedule(props.item.id, () => getDraftRecord(false))
+      draft.schedule(props.item.id, () => getDraftRecord(true));
+      await draft.flush(props.item.id);
+      syncCurrentItem();
+    } else if (status === "conflict") {
+      draft.schedule(props.item.id, () => getDraftRecord(false));
+      await draft.flush(props.item.id);
+      conflictOpen.value = true;
+    } else if (status === "error") {
+      draft.schedule(props.item.id, () => getDraftRecord(false));
     }
   },
-)
+);
 
 // ---- Edit lifecycle ----
 // The uploaded file was converted into an editable document: refresh the store item and let the
 // parent flip into edit mode; the editing watch below initializes the session once.
 function onConverted(item) {
-  store.upsertItem(item)
-  emit('converted', item)
+  store.upsertItem(item);
+  emit("converted", item);
 }
 
 function initEditSession() {
-  sessionId.value = newSessionId()
-  editorContent.value = props.item.content || ''
-  editorMode.value = props.item.content_mode === 'markdown' ? 'markdown' : 'rich-text'
-  autosave.start(props.item.id, sessionId.value, props.item.revision, props.item.content_hash)
-  void checkDraft()
+  sessionId.value = newSessionId();
+  editorContent.value = props.item.content || "";
+  editorMode.value =
+    props.item.content_mode === "markdown" ? "markdown" : "rich-text";
+  autosave.start(
+    props.item.id,
+    sessionId.value,
+    props.item.revision,
+    props.item.content_hash,
+  );
+  void checkDraft();
 }
 
 // Fires on mount (immediate), on entering edit mode, and on document switches.
 watch(
   [() => props.editing, () => props.item?.id],
   ([editing]) => {
-    if (editing && props.item) initEditSession()
+    if (editing && props.item) initEditSession();
   },
   { immediate: true },
-)
+);
 
 // Leaving the page while editing must not lose the last keystrokes.
 onBeforeUnmount(() => {
-  autosave.stop()
-  if (props.item) void draft.flush(props.item.id)
-})
+  autosave.stop();
+  if (props.item) void draft.flush(props.item.id);
+});
 
 async function finishEdit() {
-  if (finishing.value || copySaving.value) return
-  finishing.value = true
+  if (finishing.value || copySaving.value) return;
+  finishing.value = true;
   try {
     try {
-      await draft.flush(props.item.id)
+      await draft.flush(props.item.id);
     } catch {
       // Draft write failure must not block the server save.
     }
-    const versionSaved = await saveCurrentVersion()
-    if (!versionSaved) return
-    autosave.stop()
-    syncCurrentItem()
-    emit('done')
+    const versionSaved = await saveCurrentVersion();
+    if (!versionSaved) return;
+    autosave.stop();
+    syncCurrentItem();
+    emit("done");
   } finally {
-    finishing.value = false
+    finishing.value = false;
   }
 }
 
 // ---- Conflict resolution ----
 async function loadServerContent() {
   try {
-    const fresh = await getKnowledgeItem(props.wsId, props.item.id)
-    if (!fresh) return
-    await draft.remove(props.item.id)
-    store.upsertItem(fresh)
-    editorContent.value = fresh.content || ''
-    editorMode.value = fresh.content_mode === 'markdown' ? 'markdown' : 'rich-text'
-    autosave.start(fresh.id, sessionId.value, fresh.revision, fresh.content_hash)
-    conflictOpen.value = false
+    const fresh = await getKnowledgeItem(props.wsId, props.item.id);
+    if (!fresh) return;
+    await draft.remove(props.item.id);
+    store.upsertItem(fresh);
+    editorContent.value = fresh.content || "";
+    editorMode.value =
+      fresh.content_mode === "markdown" ? "markdown" : "rich-text";
+    autosave.start(
+      fresh.id,
+      sessionId.value,
+      fresh.revision,
+      fresh.content_hash,
+    );
+    conflictOpen.value = false;
   } catch {
     // error toast handled by the request interceptor
   }
 }
 
 async function saveAsCopy() {
-  if (copySaving.value || finishing.value) return
-  copySaving.value = true
+  if (copySaving.value || finishing.value) return;
+  copySaving.value = true;
   try {
-    const payload = getPayload()
+    const payload = getPayload();
     const item = await createKnowledgeDocument(props.wsId, {
       parent_id: props.item.parent_id,
       title: payload.title,
       content: payload.content,
       content_mode: payload.contentMode,
       edit_session_id: newSessionId(),
-    })
-    await draft.remove(props.item.id)
-    store.upsertItem(item)
-    conflictOpen.value = false
-    draftOpen.value = false
-    message.success($t('kb_saveAsCopySuccess'))
-    emit('switch-document', item)
+    });
+    await draft.remove(props.item.id);
+    store.upsertItem(item);
+    conflictOpen.value = false;
+    draftOpen.value = false;
+    message.success($t("kb_saveAsCopySuccess"));
+    emit("switch-document", item);
   } catch {
     // error toast handled by the request interceptor
   } finally {
-    copySaving.value = false
+    copySaving.value = false;
   }
 }
 
 function cancelEdit() {
-  if (finishing.value || copySaving.value) return
-  autosave.stop()
-  conflictOpen.value = false
-  draftOpen.value = false
-  emit('cancel')
+  if (finishing.value || copySaving.value) return;
+  autosave.stop();
+  conflictOpen.value = false;
+  draftOpen.value = false;
+  emit("cancel");
 }
 
 async function saveCurrentVersion() {
-  if (saveStatus.value === 'conflict') {
-    conflictOpen.value = true
-    return false
+  if (saveStatus.value === "conflict") {
+    conflictOpen.value = true;
+    return false;
   }
   try {
-    const saved = await autosave.flush()
+    const saved = await autosave.flush();
     if (!saved) {
-      if (saveStatus.value === 'conflict') conflictOpen.value = true
-      return false
+      if (saveStatus.value === "conflict") conflictOpen.value = true;
+      return false;
     }
     const version = await createKnowledgeVersion(props.wsId, props.item.id, {
       revision: autosave.revision.value,
-      description: '',
+      description: "",
       edit_session_id: sessionId.value,
-    })
+    });
     syncCurrentItem(
       version?.version_no ? { version_seq: version.version_no } : {},
-    )
-    if (version?.created) message.success($t('kb_versionCreated'))
-    else message.success($t('common_saveSuccess'))
-    return true
+    );
+    if (version?.created) message.success($t("kb_versionCreated"));
+    else message.success($t("common_saveSuccess"));
+    return true;
   } catch {
     // error toast handled by the request interceptor
-    return false
+    return false;
   }
 }
 
 function formatTime(timestamp) {
-  return timestamp ? formatLocalDate(timestamp, true).slice(0, 16) : ''
+  return timestamp ? formatLocalDate(timestamp, true).slice(0, 16) : "";
 }
 </script>
 
