@@ -106,6 +106,8 @@ const (
 	ViewFilterFieldPlannedEndDate   = `planned_end_date`
 	ViewFilterFieldCreatedAt        = `created_at`
 	ViewFilterFieldAgingStatus      = `aging_status`
+	ViewFilterFieldUrgeStatus       = `urge_status`
+	ViewFilterFieldSLAStatus        = `sla_status`
 )
 
 // Filter operator constants.
@@ -254,6 +256,8 @@ var ViewFilterFieldOperators = map[string][]string{
 	ViewFilterFieldPlannedEndDate:   {ViewFilterOperatorEqual, ViewFilterOperatorBetween, ViewFilterOperatorDynamic, ViewFilterOperatorEmpty, ViewFilterOperatorNotEmpty},
 	ViewFilterFieldCreatedAt:        {ViewFilterOperatorEqual, ViewFilterOperatorBetween, ViewFilterOperatorDynamic, ViewFilterOperatorEmpty, ViewFilterOperatorNotEmpty, ViewFilterOperatorOlderThanHours},
 	ViewFilterFieldAgingStatus:      {ViewFilterOperatorEqual, ViewFilterOperatorNotEqual, ViewFilterOperatorIn, ViewFilterOperatorNotIn},
+	ViewFilterFieldUrgeStatus:       {ViewFilterOperatorIn},
+	ViewFilterFieldSLAStatus:        {ViewFilterOperatorIn},
 }
 
 var viewFilterTextOperators = map[string]bool{

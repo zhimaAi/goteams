@@ -1,6 +1,6 @@
 <template>
-  <section class="sla-risk">
-    <div v-if="filters" class="sla-risk__filters">
+  <section class="sla-risk" :class="{ 'sla-risk--separate': separateModules }">
+    <div v-if="filters && showFilters" class="sla-risk__filters">
       <a-radio-group
         :value="filters.preset"
         :aria-label="t('dashboard_chart_time_range')"
@@ -62,11 +62,27 @@
       />
       <template v-else-if="risk">
         <div class="sla-risk__summary">
-          <div v-for="item in summary" :key="item.key">
-            <span>{{ item.label || t(item.key) }}</span>
-            <strong>{{ item.value }}</strong>
-            <small>{{ item.help }}</small>
-          </div>
+          <template v-if="separateModules">
+            <a-card
+              v-for="item in summary"
+              :key="item.key"
+              size="small"
+              class="sla-risk__overview"
+            >
+              <h2>{{ item.label || t(item.key) }}</h2>
+              <strong
+                >{{ item.amount }}<small>{{ item.unit }}</small></strong
+              >
+              <p>{{ item.help }}</p>
+            </a-card>
+          </template>
+          <template v-else>
+            <div v-for="item in summary" :key="item.key">
+              <span>{{ item.label || t(item.key) }}</span>
+              <strong>{{ item.value }}</strong>
+              <small>{{ item.help }}</small>
+            </div>
+          </template>
         </div>
         <a-table
           row-key="id"
@@ -80,6 +96,12 @@
         >
           <template #bodyCell="{ column, record, text }">
             <template v-if="column.key === 'id'">#{{ record.id }}</template>
+            <slot
+              v-else-if="column.key === 'title'"
+              name="title"
+              :record="record"
+              >{{ text }}</slot
+            >
             <template v-else-if="column.key === 'assignees'">{{
               assignees(record)
             }}</template>
@@ -130,9 +152,11 @@ import { categoryDateRange } from "./dashboardCharts";
 const props = defineProps({
   result: { type: Object, default: null },
   filters: { type: Object, default: null },
+  showFilters: { type: Boolean, default: true },
   members: { type: Array, default: () => [] },
   priorities: { type: Array, default: () => [] },
   statuses: { type: Array, default: () => [] },
+  separateModules: Boolean,
   loading: Boolean,
   failed: Boolean,
 });
@@ -204,10 +228,15 @@ const summary = computed(() => {
     {
       key: "dashboard_metric_sla_overdue_count",
       value: count(data.overdue),
+      amount: data.overdue,
+      unit: t("dashboard_sla_count_unit"),
       help: t("dashboard_sla_selected_stage_overdue_help"),
     },
     {
       key: "dashboard_metric_sla_overdue_rate",
+      amount:
+        data.overdue_rate == null ? "—" : Number(data.overdue_rate.toFixed(1)),
+      unit: data.overdue_rate == null ? "" : "%",
       value:
         data.overdue_rate == null
           ? "—"
@@ -221,8 +250,12 @@ const summary = computed(() => {
       key: stage.id,
       label: t("dashboard_sla_stage_critical", { name: stage.name }),
       value: count(stage.critical),
+      amount: stage.critical,
+      unit: t("dashboard_sla_count_unit"),
       help: t("dashboard_sla_risk_threshold", {
-        minutes: (stage.threshold_seconds ?? data.threshold_seconds) / 60,
+        minutes:
+          props.filters?.thresholdMinutes ??
+          (stage.threshold_seconds ?? data.threshold_seconds) / 60,
       }),
     })),
   ];
@@ -327,7 +360,7 @@ function changePage({ current }) {
     gap: 10px;
     margin-bottom: 10px;
 
-    div {
+    > div:not(.ant-card) {
       display: grid;
       gap: 5px;
       padding: 12px;
@@ -343,8 +376,51 @@ function changePage({ current }) {
     }
   }
 }
+.sla-risk--separate {
+  .sla-risk__summary {
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .sla-risk__overview {
+    background: #fff;
+    h2 {
+      font-size: 13px;
+      margin: 0 0 6px;
+    }
+    strong {
+      color: inherit;
+      font-size: 34px;
+      line-height: 1.25;
+    }
+    strong small {
+      margin-left: 4px;
+      color: inherit;
+      font-size: 13px;
+      font-weight: 400;
+    }
+    p {
+      display: flex;
+      align-items: center;
+      margin: 12px 0 0;
+      color: var(--ant-color-text-secondary, #8c8c8c);
+      font-size: 12px;
+    }
+  }
+  :deep(.ant-table-wrapper) {
+    padding: 16px;
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: #fff;
+  }
+}
 @media (max-width: 750px) {
   .sla-risk__summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 960px) {
+  .sla-risk--separate .sla-risk__summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

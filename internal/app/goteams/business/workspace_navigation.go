@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/spf13/cast"
@@ -17,8 +18,16 @@ import (
 var ErrNavigationLocked = errors.New("workspace navigation editing is locked")
 
 var validNavigationKeys = map[string]bool{
-	"planning": true, "requirement": true, "defect": true, "iteration": true,
-	"gantt": true, "dashboard": true, "knowledge": true, "issue-invite": true,
+	"planning": true,
+	"requirement": true,
+	"defect": true,
+	"iteration": true,
+	"gantt": true,
+	"dashboard": true,
+	"statistics": true,
+	"knowledge": true,
+	"issue-invite": true,
+	"report": true,
 }
 
 // WorkspaceNavigationSettings is the effective navigation configuration for one user.
@@ -115,12 +124,33 @@ func GetWorkspaceNavigationSettings(adminId, userId, workspaceId int) (Workspace
 			}
 		}
 	}
-	return settings, nil
+	settings.MainNavOrder, err = availableReportNavigationOrder(adminId, workspaceId, settings.MainNavOrder)
+	return settings, err
+}
+
+// 工单工作区配置里可能存在复制或迁移前遗留的报表入口。
+func availableReportNavigationOrder(adminId, workspaceId int, order []string) ([]string, error) {
+	if !slices.Contains(order, define.AppKeyReport) {
+		return order, nil
+	}
+	issueWorkspace, err := IsIssueWorkspace(adminId, workspaceId)
+	if err != nil || !issueWorkspace {
+		return order, err
+	}
+	order = slices.DeleteFunc(slices.Clone(order), func(key string) bool { return key == define.AppKeyReport })
+	if len(order) == 0 {
+		order = defaultNavigationOrder()
+	}
+	return order, nil
 }
 
 // SaveMemberNavigationSettings stores the requesting member's navigation override.
 func SaveMemberNavigationSettings(adminId, userId, workspaceId int, order []string, style string) error {
 	normalized, err := normalizeNavigationOrder(order)
+	if err != nil {
+		return err
+	}
+	normalized, err = availableReportNavigationOrder(adminId, workspaceId, normalized)
 	if err != nil {
 		return err
 	}
@@ -161,6 +191,10 @@ func SaveWorkspaceNavigationSettings(adminId, userId, workspaceId int, order []s
 		return ErrNavigationLocked
 	}
 	normalized, err := normalizeNavigationOrder(order)
+	if err != nil {
+		return err
+	}
+	normalized, err = availableReportNavigationOrder(adminId, workspaceId, normalized)
 	if err != nil {
 		return err
 	}

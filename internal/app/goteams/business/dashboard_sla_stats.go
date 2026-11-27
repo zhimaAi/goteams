@@ -189,19 +189,28 @@ func dashboardSLAItemStages(ids []int, byStage map[int64]SLAStageResultModel) []
 
 type dashboardSLAItem struct {
 	Id                               int64
+	CreatedAt                        int64
 	PriorityId, CategoryId, StatusId int
 	Title                            string
 	AssigneeIds                      []int
 	Resolved                         bool
+	PolicyId                         int
+	PolicyName                       string
+	PolicyStartedAt, PolicyCycleId   int64
 }
 
 type dashboardSLACollection struct {
-	Details bool
-	Collect func(dashboardSLAItem, []SLAStageResultModel)
+	Context           context.Context
+	Details, Policies bool
+	EvaluatedAt       int64
+	Collect           func(dashboardSLAItem, []SLAStageResultModel)
 }
 
 func queryDashboardSLAMetric(model DashboardMetricQueryModel, config DashboardMetricConfig, where []string, args []any, fullTrend bool, collection *dashboardSLACollection) (DashboardMetricResultModel, error) {
 	stats := &DashboardSLAStatsModel{EvaluatedAt: time.Now().Unix(), StageName: config.SLAStageName}
+	if collection != nil && collection.EvaluatedAt > 0 {
+		stats.EvaluatedAt = collection.EvaluatedAt
+	}
 	result := DashboardMetricResultModel{MetricType: config.MetricType, DataScope: config.DataScope, SLA: stats}
 	if config.MetricType == define.DashboardMetricSLAStageCriticalCount {
 		if len(config.SLAStageIds) == 0 {
@@ -214,7 +223,11 @@ func queryDashboardSLAMetric(model DashboardMetricQueryModel, config DashboardMe
 		return result, err
 	}
 	// 分批读取使用同一只读快照，避免分页期间的状态变化使同一次统计前后口径不一致。
-	queryContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	parent := context.Background()
+	if collection != nil && collection.Context != nil {
+		parent = collection.Context
+	}
+	queryContext, cancel := context.WithTimeout(parent, 15*time.Second)
 	defer cancel()
 	tx, err := db.BeginTx(queryContext, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
@@ -330,6 +343,10 @@ func queryDashboardSLAMetric(model DashboardMetricQueryModel, config DashboardMe
 			return result, err
 		}
 		byItem := make(map[int64]map[int64]SLAStageResultModel, len(items))
+		var policies map[int64]slaCycle
+		if collection != nil && collection.Policies {
+			policies = make(map[int64]slaCycle, len(items))
+		}
 		for _, row := range cycles {
 			id, err := slaNumber(row, "requirement_id")
 			if err != nil {
@@ -347,6 +364,12 @@ func queryDashboardSLAMetric(model DashboardMetricQueryModel, config DashboardMe
 				byItem[id] = make(map[int64]SLAStageResultModel)
 			}
 			byItem[id][cycle.StageId] = projection
+			if policies != nil && cycle.Snapshot.PolicyId > 0 && cycle.State != "interrupted" {
+				previous := policies[id]
+				if cycle.StartedAt > previous.StartedAt || (cycle.StartedAt == previous.StartedAt && cycle.Id > previous.Id) {
+					policies[id] = cycle
+				}
+			}
 		}
 		for index, id := range ids {
 			stages := dashboardSLAItemStages(config.SLAStageIds, byItem[id])
@@ -359,7 +382,11 @@ func queryDashboardSLAMetric(model DashboardMetricQueryModel, config DashboardMe
 				if err != nil {
 					return result, fmt.Errorf("parse SLA work item category: %w", err)
 				}
-				item := dashboardSLAItem{Id: id, PriorityId: priorityId, CategoryId: categoryId, Resolved: resolved[id]}
+				item := dashboardSLAItem{Id: id, CreatedAt: created[id], PriorityId: priorityId, CategoryId: categoryId, Resolved: resolved[id]}
+				if policy, ok := policies[id]; ok {
+					item.PolicyId, item.PolicyName = policy.Snapshot.PolicyId, policy.Snapshot.Name
+					item.PolicyStartedAt, item.PolicyCycleId = policy.StartedAt, policy.Id
+				}
 				if collection.Details {
 					row := items[index]
 					item.Title = row["title"]

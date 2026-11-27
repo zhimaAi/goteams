@@ -10,9 +10,12 @@ export const DEFAULT_STATUS_TRANSITION_FORM = {
 export const STATUS_TRANSITION_BUILTIN_KEYS = [
   "version",
   "priority",
+  "severity_id",
+  "estimated_work_hours",
   "planned_start_date",
   "planned_end_date",
   "assignee",
+  "responsible_ids",
 ];
 
 // Deep-link anchor of the requirement aging (SLA) control card. The requirement aging tab
@@ -31,3 +34,9 @@ export const DEFAULT_AGING_CONTROL_FORM = {
   },
   default_status_timeout_minutes: 1440,
 };
+
+export const DEFECT_STATUS_TRANSITION_KEYS = [
+  "severity_id",
+  "estimated_work_hours",
+  "responsible_ids",
+];

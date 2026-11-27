@@ -1140,6 +1140,11 @@ func countRoleMembers(adminId int, roleId int) (int, error) {
 // CreateProjectRole creates a custom project role for a workspace and assigns permissions.
 // workspace_id isolated, is_system=0 (custom role), only accepts permission keys within the project scope.
 func CreateProjectRole(adminId int, wsId string, name string, description string, permKeys []string) (int, error) {
+	issueWorkspace, err := IsIssueWorkspace(adminId, cast.ToInt(wsId))
+	if err != nil {
+		return 0, err
+	}
+	permKeys = excludeIssueReportPermissions(permKeys, issueWorkspace)
 	if projectRoleNameExists(adminId, wsId, name) {
 		return 0, ErrProjectRoleNameExists
 	}
@@ -1204,7 +1209,11 @@ func UpdateProjectRolePermissions(adminId int, wsId string, roleId int, permKeys
 	if cast.ToInt(role[`is_system`]) == 1 && !isEditableSystemProjectRole(role) {
 		return ErrProjectRoleSystem
 	}
-	return SetRolePermissions(adminId, roleId, filterProjectPermissionKeys(permKeys))
+	issueWorkspace, err := IsIssueWorkspace(adminId, cast.ToInt(wsId))
+	if err != nil {
+		return err
+	}
+	return SetRolePermissions(adminId, roleId, filterProjectPermissionKeys(excludeIssueReportPermissions(permKeys, issueWorkspace)))
 }
 
 // UpdateProjectRoleBasic updates the name and description of a project role.
@@ -1613,6 +1622,7 @@ func filterProjectPermissionKeys(keys []string) []string {
 		permission.GroupKeyVersion:       true,
 		permission.GroupKeyKnowledgeBase: true,
 		permission.GroupKeyDashboard:     true,
+		permission.GroupKeyReport:        true,
 		// Issue invitation group must survive the filter; otherwise ticket:copy_link / ticket:manage
 		// checked on the role config page would be silently dropped when saving or copying a role.
 		permission.GroupKeyTicket:            true,
@@ -1622,7 +1632,11 @@ func filterProjectPermissionKeys(keys []string) []string {
 		permission.GroupKeyRequirementSetup:  true,
 		permission.GroupKeyDefectSetup:       true,
 		permission.GroupKeyAutomation:        true,
+		permission.GroupKeyAutoAssignment:    true,
 		permission.GroupKeySLA:               true,
+		permission.GroupKeySatisfaction:      true,
+		permission.GroupKeyIssueStatistics:   true,
+		permission.GroupKeyWarning:           true,
 		permission.GroupKeyApplicationMarket: true,
 		permission.GroupKeyPlanning:          true,
 	}

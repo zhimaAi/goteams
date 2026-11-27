@@ -26,8 +26,12 @@ func workspacePermissionApplication(groupKey string) string {
 		return define.AppKeyGantt
 	case permission.GroupKeyKnowledgeBase:
 		return define.AppKeyKnowledgeBase
-	case permission.GroupKeyTicket:
+	case permission.GroupKeyTicket, permission.GroupKeySatisfaction:
 		return define.AppKeyIssue
+	case permission.GroupKeyReport:
+		return define.AppKeyReport
+	case permission.GroupKeyIssueStatistics:
+		return define.AppKeyIssueStatistics
 	case permission.GroupKeyDashboard:
 		return define.AppKeyDashboard
 	default:
@@ -41,6 +45,17 @@ func IsWorkspacePermissionGroupEnabled(groupKey string, enabledApplications []st
 	return appKey == "" || slices.Contains(enabledApplications, appKey)
 }
 
+// 工单空间的角色不能取得报表授权，其他权限继续走原有规则。
+func excludeIssueReportPermissions(keys []string, issueWorkspace bool) []string {
+	if !issueWorkspace {
+		return keys
+	}
+	return slices.DeleteFunc(slices.Clone(keys), func(key string) bool {
+		entry, ok := permission.GetPermission(key)
+		return ok && entry.Group == permission.GroupKeyReport
+	})
+}
+
 func filterIssueWorkspacePermissions(adminId int, wsId string, keys []string) []string {
 	if wsId == "" {
 		return keys
@@ -52,7 +67,7 @@ func filterIssueWorkspacePermissions(adminId int, wsId string, keys []string) []
 	}
 	return slices.DeleteFunc(keys, func(key string) bool {
 		p, ok := permission.GetPermission(key)
-		if ok && p.Group == permission.GroupKeySLA {
+		if ok && (p.Group == permission.GroupKeySLA || p.Group == permission.GroupKeyIssueStatistics || p.Group == permission.GroupKeySatisfaction) {
 			return !issueWorkspace
 		}
 		return ok && !workspaceAppAvailable(workspacePermissionApplication(p.Group), issueWorkspace)
@@ -125,13 +140,23 @@ func HasPermission(adminId int, userId int, wsId string, permKey string) bool {
 	if !ok {
 		return false
 	}
-	if perm.Group == permission.GroupKeySLA {
+	if perm.Group == permission.GroupKeySLA || perm.Group == permission.GroupKeyIssueStatistics || perm.Group == permission.GroupKeySatisfaction {
 		issueWorkspace, err := IsIssueWorkspace(adminId, cast.ToInt(wsId))
 		if err != nil {
-			logs.Error("load workspace type for SLA permission failed, err:%s", err.Error())
+			logs.Error("load workspace type for issue permission failed, err:%s", err.Error())
 			return false
 		}
 		if !issueWorkspace {
+			return false
+		}
+	}
+	if perm.Group == permission.GroupKeyIssueStatistics {
+		enabled, err := IsWorkspaceApplicationEnabled(adminId, cast.ToInt(wsId), define.AppKeyIssueStatistics)
+		if err != nil {
+			logs.Error("check statistics application before permission failed, err:%s", err.Error())
+			return false
+		}
+		if !enabled {
 			return false
 		}
 	}
@@ -146,7 +171,7 @@ func HasPermission(adminId int, userId int, wsId string, permKey string) bool {
 			return false
 		}
 	}
-	if permKey == define.PermissionTicketCopyLink || permKey == define.PermissionTicketManage {
+	if permKey == define.PermissionTicketCopyLink || permKey == define.PermissionTicketManage || perm.Group == permission.GroupKeySatisfaction {
 		enabled, err := IsWorkspaceApplicationEnabled(adminId, cast.ToInt(wsId), define.AppKeyIssue)
 		if err != nil {
 			logs.Error("check issue application before permission failed, err:%s", err.Error())
@@ -306,33 +331,38 @@ func GetRolePermissions(adminId int, roleId int) []string {
 
 // SetRolePermissions batch-sets permissions for a role (admin_id isolated).
 func SetRolePermissions(adminId int, roleId int, permKeys []string) error {
-	deleteM := msql.Model(define.TableRolePermissions, define.Postgres)
-	_, err := deleteM.Where2([][]string{
-		{`admin_id`, cast.ToString(adminId)},
-		{`role_id`, cast.ToString(roleId)},
-	}).Delete()
+	tx, err := msql.Begin(define.Postgres)
 	if err != nil {
-		logs.Error("delete role_permissions error: %s", err.Error())
 		return err
 	}
+	defer tx.Rollback()
+	// 锁定角色后在同一事务内替换整组权限，避免并发保存互相覆盖部分授权。
+	role, err := msql.RawValues(define.Postgres, `SELECT id FROM `+define.TableRoles+` WHERE admin_id=$1 AND id=$2 FOR UPDATE`, tx, adminId, roleId)
+	if err != nil {
+		logs.Error("lock role permissions: %s", err.Error())
+		return err
+	}
+	if len(role) == 0 {
+		return nil
+	}
+	if _, err = msql.RawExec(define.Postgres, `DELETE FROM `+define.TableRolePermissions+` WHERE admin_id=$1 AND role_id=$2`, tx, adminId, roleId); err != nil {
+		logs.Error("delete role permissions: %s", err.Error())
+		return err
+	}
+	now := tool.Time2Int()
 	for _, key := range permKeys {
 		if _, ok := permission.GetPermission(key); !ok {
 			continue
 		}
-		now := tool.Time2Int()
-		insertM := msql.Model(define.TableRolePermissions, define.Postgres)
-		_, err = insertM.Insert(msql.Datas{
-			`admin_id`:       adminId,
-			`role_id`:        roleId,
-			`permission_key`: key,
-			`created_at`:     now,
-			`updated_at`:     now,
-		})
+		_, err = msql.RawExec(define.Postgres, `INSERT INTO `+define.TableRolePermissions+`
+			(admin_id,role_id,permission_key,created_at,updated_at) VALUES ($1,$2,$3,$4,$4)
+			ON CONFLICT(admin_id,role_id,permission_key) DO NOTHING`, tx, adminId, roleId, key, now)
 		if err != nil {
-			logs.Error("insert role_permissions error: %s", err.Error())
+			logs.Error("insert role permissions: %s", err.Error())
+			return err
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 // ======================== Internal Functions ========================

@@ -175,21 +175,7 @@ func QueryDashboardCharts(c *gin.Context) {
 		}
 		response.SLATrend = &dashboardSLATrendResponse{Enabled: trend.Enabled, EvaluatedAt: trend.EvaluatedAt, Days: days}
 	}
-	if dimension := result.SLADimension; dimension != nil {
-		groups := make([]dashboardSLADimensionGroupResponse, 0, len(dimension.Groups))
-		for _, group := range dimension.Groups {
-			series := make([]dashboardSLADimensionSeriesResponse, 0, len(group.Series))
-			for _, item := range group.Series {
-				series = append(series, dashboardSLADimensionSeriesResponse{
-					MetricType: item.MetricType, StageId: item.StageId, StageName: item.StageName, Achieved: item.Achieved, Eligible: item.Eligible, Rate: item.Rate,
-				})
-			}
-			groups = append(groups, dashboardSLADimensionGroupResponse{Id: group.Id, Name: group.Name, Series: series})
-		}
-		response.SLADimension = &dashboardSLADimensionResponse{
-			Enabled: dimension.Enabled, EvaluatedAt: dimension.EvaluatedAt, Groups: groups,
-		}
-	}
+	response.SLADimension = toDashboardSLADimensionResponse(result.SLADimension)
 	for _, b := range result.Buckets {
 		response.Buckets = append(response.Buckets, dashboardChartBucketResponse{Id: b.Id, Type: b.Type, Name: b.Name, Color: b.Color, Count: b.Count, Timestamp: b.Timestamp})
 	}
@@ -251,4 +237,23 @@ func CopyDashboardCards(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, define.Response{Code: define.CodeSuccess, Message: lib_i18n.Show(lang, define.MsgSuccess), Data: copyDashboardCardsResponse{Count: len(result)}})
+}
+
+func toDashboardSLADimensionResponse(dimension *business.DashboardSLADimensionModel) *dashboardSLADimensionResponse {
+	if dimension == nil {
+		return nil
+	}
+	groups := make([]dashboardSLADimensionGroupResponse, 0, len(dimension.Groups))
+	for _, group := range dimension.Groups {
+		series := make([]dashboardSLADimensionSeriesResponse, 0, len(group.Series))
+		for _, item := range group.Series {
+			series = append(series, dashboardSLADimensionSeriesResponse{
+				MetricType: item.MetricType, StageId: item.StageId, StageName: item.StageName, Achieved: item.Achieved, Eligible: item.Eligible, Rate: item.Rate,
+			})
+		}
+		groups = append(groups, dashboardSLADimensionGroupResponse{Id: group.Id, Name: group.Name, Series: series})
+	}
+	return &dashboardSLADimensionResponse{
+		Enabled: dimension.Enabled, EvaluatedAt: dimension.EvaluatedAt, Groups: groups,
+	}
 }

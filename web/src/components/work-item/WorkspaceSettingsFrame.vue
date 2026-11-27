@@ -62,7 +62,12 @@
         </template>
       </nav>
     </div>
-    <div class="settings-content-body">
+    <div
+      class="settings-content-body"
+      :class="{
+        'settings-content-body-satisfaction': activeSection === 'satisfaction',
+      }"
+    >
       <slot
         :section="activeSection"
         :ws-id="wsId"
@@ -175,6 +180,11 @@ const canDefectSettings = computed(
 const canPlanningSettings = computed(
   () => planningAppEnabled.value && authStore.hasPermission("planning:edit"),
 );
+const canWarning = computed(
+  () =>
+    workspaceType.value === "issue" &&
+    hasAny(["warning_notification:view", "warning_notification:manage"]),
+);
 const canSLA = computed(
   () => workspaceType.value === "issue" && hasAny(["sla:view", "sla:manage"]),
 );
@@ -222,6 +232,29 @@ const groups = [
         label: "settings_automation",
       },
       { key: "sla", visible: canSLA, label: "sla_title" },
+      {
+        key: "warning-notifications",
+        visible: canWarning,
+        label: "warning_title",
+      },
+      {
+        key: "auto-assignment",
+        visible: computed(
+          () =>
+            workspaceType.value === "issue" &&
+            hasAny(["auto_assignment:view", "auto_assignment:manage"]),
+        ),
+        label: "auto_assignment_title",
+      },
+      {
+        key: "satisfaction",
+        visible: computed(
+          () =>
+            workspaceType.value === "issue" &&
+            hasAny(["satisfaction:view", "satisfaction:manage"]),
+        ),
+        label: "satisfaction_title",
+      },
     ],
   },
   {
@@ -545,13 +578,20 @@ async function applyEnded(ended) {
 }
 
 .settings-content-body {
+  --settings-content-padding-left: 30px;
+  --settings-content-padding-right: 16px;
   flex: 1;
   min-width: 0;
   min-height: 0;
-  padding: 0 16px 24px 30px;
+  padding: 0 var(--settings-content-padding-right) 24px
+    var(--settings-content-padding-left);
   overflow-y: auto;
   overflow-x: hidden;
   background: #fff;
+}
+.settings-content-body-satisfaction {
+  padding-bottom: 0;
+  overflow: hidden;
 }
 
 @media (max-width: 900px) {
@@ -560,7 +600,7 @@ async function applyEnded(ended) {
   }
 
   .settings-content-body {
-    padding-left: 20px;
+    --settings-content-padding-left: 20px;
   }
 }
 </style>

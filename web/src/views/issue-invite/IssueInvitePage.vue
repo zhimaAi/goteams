@@ -1,5 +1,5 @@
 <template>
-  <nav class="issue-invite-tabs" role="tablist">
+  <nav v-if="!isEvaluationView" class="issue-invite-tabs" role="tablist">
     <div class="issue-invite-tabs__items">
       <button
         type="button"
@@ -23,11 +23,31 @@
       </button>
     </div>
   </nav>
-  <main class="issue-invite-page">
-    <!-- Shared tabs: visible on every view. -->
-
+  <main
+    class="issue-invite-page"
+    :class="{ 'issue-invite-page--evaluation': isEvaluationView }"
+  >
+    <a-alert
+      v-if="satisfactionFailed && activeTab === 'history' && !isEvaluationView"
+      type="error"
+      :message="$t('common_requestFailed')"
+      ><template #action
+        ><a-button @click="loadHistory(history.page)">{{
+          $t("issue_retry")
+        }}</a-button></template
+      ></a-alert
+    >
+    <SatisfactionPanel
+      v-if="isEvaluationView && state !== 'invalid'"
+      :requirement-id="requirementId"
+      :invite-key="inviteKey"
+      :openid="resolvedOpenid"
+      :lang="currentLang"
+      presentation="page"
+      @close="closeEvaluation"
+    />
     <div
-      v-if="state === 'loading' || state === 'detail-loading'"
+      v-else-if="state === 'loading' || state === 'detail-loading'"
       class="issue-invite-page__loading"
     >
       <a-spin />
@@ -63,6 +83,7 @@
         @recall="recallIssue"
         @urge="urgeIssue"
         @edit="startEdit"
+        @evaluate="openDetail(detail.requirement_id, true)"
       />
     </template>
 
@@ -70,6 +91,8 @@
     <IssueHistoryList
       v-else-if="activeTab === 'history'"
       :items="history.items"
+      :satisfaction-states="satisfactionStates"
+      @evaluate="openDetail($event, true)"
       :page="history.page"
       :page-size="history.page_size"
       :total="history.total"
@@ -156,6 +179,10 @@ import {
   submitPublicIssue,
   urgePublicIssue,
 } from "@/api/issueInvite";
+import { listSatisfactionStates } from "@/api/satisfaction";
+import SatisfactionPanel from "@/components/satisfaction/SatisfactionPanel.vue";
+const satisfactionStates = ref({});
+const satisfactionFailed = ref(false);
 import IssueForm from "./components/IssueForm.vue";
 import IssueHistoryDetail from "./components/IssueHistoryDetail.vue";
 import IssueHistoryList from "./components/IssueHistoryList.vue";
@@ -182,6 +209,9 @@ const xkfStaffId = computed(() => {
 });
 // The detail route has its own address under the history segment.
 const isDetailView = computed(() => route.name === "IssueInviteHistoryDetail");
+const isEvaluationView = computed(
+  () => isDetailView.value && route.query.evaluate === "1",
+);
 // The active tab is fully route-driven: history has its own address, and legacy
 // `?tab=history` deep links on the picker route stay readable.
 const isHistoryView = computed(
@@ -523,6 +553,23 @@ async function loadHistory(page = 1) {
       page_size: data?.page_size || 10,
       total: data?.total || 0,
     };
+    satisfactionStates.value = {};
+    satisfactionFailed.value = false;
+    try {
+      const states = await listSatisfactionStates(
+        inviteKey.value,
+        resolvedOpenid.value,
+        currentLang.value,
+        history.value.items.map((item) => item.requirement_id),
+      );
+      if (entrySeq !== entryRequestSeq || seq !== historyRequestSeq) return;
+      satisfactionStates.value = Object.fromEntries(
+        states.map((item) => [item.requirement_id, item.state]),
+      );
+    } catch {
+      if (entrySeq !== entryRequestSeq || seq !== historyRequestSeq) return;
+      satisfactionFailed.value = true;
+    }
     state.value = "ready";
     // Reset after the list replaces the long form, including when changing pages.
     await nextTick();
@@ -535,12 +582,21 @@ async function loadHistory(page = 1) {
   }
 }
 
-function openDetail(requirementId) {
+function openDetail(requirementId, evaluate = false) {
   if (!requirementId) return;
   router.push({
     name: "IssueInviteHistoryDetail",
     params: { key: inviteKey.value, requirementId: String(requirementId) },
-    query: withLang(),
+    query: { ...withLang(), evaluate: evaluate ? "1" : undefined },
+  });
+}
+
+function closeEvaluation() {
+  const { evaluate: _ignored, ...query } = withLang();
+  router.replace({
+    name: "IssueInviteHistoryDetail",
+    params: { key: inviteKey.value, requirementId: requirementId.value },
+    query,
   });
 }
 
@@ -686,6 +742,12 @@ watch(
   margin: 0 auto;
   min-height: 100vh;
   background: #f5f6f8;
+}
+
+.issue-invite-page--evaluation {
+  max-width: 520px;
+  min-height: 100dvh;
+  background: #f2f3f5;
 }
 
 // The sticky tabs are 49px tall; fill the rest of the viewport so the loading

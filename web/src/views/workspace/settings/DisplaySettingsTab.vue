@@ -158,6 +158,7 @@ const DETAIL_DISPLAY_BUILTIN_KEYS = new Set([
   "status",
   "priority",
   "severity_id",
+  "responsible_ids",
   "version",
   "category",
   "assignee",

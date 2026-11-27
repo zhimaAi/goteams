@@ -179,6 +179,9 @@ const ctx = Object.fromEntries(
     categoryId: 0,
     returnCategoryQuery: "",
     assigneeIds: [],
+    responsibleIds: [],
+    severityId: undefined,
+    severityOptions: [],
     plannedStartDate: null,
     plannedEndDate: null,
     estimatedWorkHours: 0,
@@ -310,6 +313,7 @@ const useSubmit = loadComposable("useCreateWorkItemSubmit", {
   "@/utils/workItemActionToast": { showWorkItemActionSuccess() {} },
   "@/utils/customField": customUtils,
 });
+const parentId = vue.ref(undefined);
 const submit = useSubmit({
   ...ctx,
   ...template,
@@ -318,7 +322,7 @@ const submit = useSubmit({
   canCreateCurrentType: vue.ref(true),
   titleTouched: vue.ref(false),
   imageFileIds: vue.ref([]),
-  parentId: vue.ref(undefined),
+  parentId,
   planningId: vue.ref(0),
   creating: vue.ref(false),
   draft: {
@@ -356,6 +360,29 @@ assert.equal(
   7,
   "hidden category retains the route context, not stale form input",
 );
+
+parentId.value = 123;
+ctx.categoryId.value = 7;
+ctx.returnCategoryQuery.value = "";
+await submit.submitCreate(false);
+assert.equal(
+  requests.at(-1).category_id,
+  7,
+  "child creation retains the parent category when the template hides it",
+);
+ctx.returnCategoryQuery.value = "9";
+await submit.submitCreate(false);
+assert.equal(requests.at(-1).category_id, 7);
+ctx.categoryId.value = 0;
+await submit.submitCreate(false);
+assert.equal(requests.at(-1).category_id, 0);
+ctx.type.value = "defect";
+ctx.categoryId.value = 7;
+await submit.submitCreate(false);
+assert.equal(requests.at(-1).category_id, 0);
+ctx.type.value = "requirement";
+parentId.value = undefined;
+ctx.returnCategoryQuery.value = "7";
 
 // Reload from the saved response instead of reusing an earlier template object.
 response.items[0].fields[1].default_value = "updated";

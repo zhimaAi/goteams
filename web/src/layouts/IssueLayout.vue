@@ -44,6 +44,8 @@ const loading = ref(true);
 const failed = ref(false);
 const { applications } = useWorkspaceApplications(wsId);
 const pageAvailable = computed(() => {
+  if (route.name === "IssueStatistics")
+    return metadata.value?.workspace?.workspace_type === "issue";
   const internalPages = [
     "IssueList",
     "IssueCreate",

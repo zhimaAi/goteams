@@ -428,8 +428,11 @@ func executeAutomationStatusTx(tx *sql.Tx, execution *automationExecution, actio
 			if len(itemRows) == 0 || cast.ToInt(itemRows[0]["status_id"]) == transition.TargetStatusID {
 				continue
 			}
-			if _, queryErr = msql.RawExec(define.Postgres, `UPDATE requirements SET status_id=$1,updated_at=$2 WHERE admin_id=$3 AND workspace_id=$4 AND id=$5`, tx,
+			if _, queryErr = msql.RawExec(define.Postgres, `UPDATE `+define.TableRequirements+` SET `+workItemTimeAssignments(1)+`, status_id=$1,updated_at=$2 WHERE admin_id=$3 AND workspace_id=$4 AND id=$5`, tx,
 				transition.TargetStatusID, time.Now().Unix(), execution.AdminID, execution.WorkspaceID, cast.ToInt(target["id"])); queryErr != nil {
+				return false, false, "", queryErr
+			}
+			if queryErr = recordSatisfactionTx(tx, execution.AdminID, execution.WorkspaceID, cast.ToInt(target["id"]), cast.ToInt(itemRows[0]["status_id"])); queryErr != nil {
 				return false, false, "", queryErr
 			}
 			if queryErr = createAutomationHistoryTx(tx, execution, automationHistoryModel{WorkspaceID: execution.WorkspaceID, ItemID: cast.ToInt(target["id"]), Action: define.HistoryActionStatusChanged, Field: "status", OldValue: itemRows[0]["status_id"], NewValue: statusRows[0]["name"]}); queryErr != nil {

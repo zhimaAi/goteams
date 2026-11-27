@@ -92,23 +92,27 @@ var ErrFieldOrderInvalid = errors.New("invalid field order")
 // ======================== Built-in Field Config (Attribute Field Switches) ========================
 
 // fieldConfigQueryFields are the built-in field config query fields, to avoid SELECT *.
-const fieldConfigQueryFields = `field_key,is_enabled,is_editable,is_locked,sort_order`
+const fieldConfigQueryFields = `field_key,is_enabled,is_editable,is_locked,sort_order,edit_scope,array_to_json(edit_role_ids)::text AS edit_role_ids`
 
 // customFieldQueryFields are the custom field query fields, to avoid SELECT *.
-const customFieldQueryFields = `id,key,name,field_type,is_required,sort_order,is_enabled,config_json`
+const customFieldQueryFields = `id,key,name,field_type,is_required,sort_order,is_enabled,config_json,edit_scope,array_to_json(edit_role_ids)::text AS edit_role_ids`
 
 // FieldConfigModel is the built-in field config business data.
 type FieldConfigModel struct {
-	Key       string
-	Label     string // Display name already translated to the request language
-	Enabled   int
-	Editable  int
-	Locked    int
-	SortOrder int
+	FieldEditPolicyModel
+	CanEdit           bool
+	SupportsEditRoles bool
+	Key               string
+	Label             string // Display name already translated to the request language
+	Enabled           int
+	Editable          int
+	Locked            int
+	SortOrder         int
 }
 
 // ListFieldConfigsModel describes the built-in field config list use case.
 type ListFieldConfigsModel struct {
+	UserId  int
 	AdminId int
 	WsId    string
 	TypeKey string
@@ -134,7 +138,12 @@ func toFieldConfigModel(row msql.Params, typeKey, lang string) (FieldConfigModel
 	if err != nil {
 		return FieldConfigModel{}, fmt.Errorf(`parse field config sort_order: %w`, err)
 	}
+	policy, err := fieldEditPolicy(row[`edit_scope`], row[`edit_role_ids`])
+	if err != nil {
+		return FieldConfigModel{}, err
+	}
 	return FieldConfigModel{
+		FieldEditPolicyModel: policy, SupportsEditRoles: SupportsFieldEditRoles(typeKey, row[`field_key`]),
 		Key:       row[`field_key`],
 		Label:     fieldLabel(lang, typeKey, row[`field_key`]),
 		Enabled:   enabled,
@@ -146,14 +155,26 @@ func toFieldConfigModel(row msql.Params, typeKey, lang string) (FieldConfigModel
 
 // ListFieldConfigs returns the built-in field config list of a specified type under the workspace (ordered by sort_order).
 func ListFieldConfigs(model ListFieldConfigsModel) (ListFieldConfigsModel, error) {
-	m := msql.Model(define.TableWorkItemFieldConfigs, define.Postgres)
-	list, err := m.Field(fieldConfigQueryFields).Where2([][]string{
-		{`admin_id`, cast.ToString(model.AdminId)},
-		{`workspace_id`, model.WsId},
-		{`type_key`, model.TypeKey},
-	}).Order(`sort_order asc, id asc`).Select()
+	result, err := listFieldConfigsTx(nil, model)
+	if err != nil || model.UserId == 0 {
+		return result, err
+	}
+	access, err := LoadFieldEditAccess(FieldEditAccessModel{AdminId: model.AdminId, UserId: model.UserId, WsId: model.WsId, TypeKey: model.TypeKey})
 	if err != nil {
-		logs.Error("sql:%s, err:%s", m.GetLastSql(), err.Error())
+		return result, err
+	}
+	for i := range result.Items {
+		item := &result.Items[i]
+		item.CanEdit = access.canEditField(item.Key, item.FieldEditPolicyModel, item.Editable == 1 || item.Key == "title" || item.Key == "status")
+	}
+	return result, nil
+}
+
+func listFieldConfigsTx(tx *sql.Tx, model ListFieldConfigsModel) (ListFieldConfigsModel, error) {
+	query := `SELECT ` + fieldConfigQueryFields + ` FROM ` + define.TableWorkItemFieldConfigs + ` WHERE admin_id=$1 AND workspace_id=$2 AND type_key=$3 ORDER BY sort_order ASC,id ASC`
+	list, err := msql.RawValues(define.Postgres, query, tx, model.AdminId, model.WsId, model.TypeKey)
+	if err != nil {
+		logs.Error("sql:%s err:%s", query, err.Error())
 		return ListFieldConfigsModel{}, err
 	}
 	items := make([]FieldConfigModel, 0, len(list))
@@ -178,6 +199,8 @@ func fieldLabel(lang, typeKey, key string) string {
 		i18nKey = `workspace_field_row_index`
 	case `id`:
 		i18nKey = `workspace_field_id`
+	case `description`:
+		i18nKey = `workspace_field_description`
 	case `title`:
 		i18nKey = `workspace_field_title`
 		if typeKey == define.TypeKeyPlanning {
@@ -199,8 +222,14 @@ func fieldLabel(lang, typeKey, key string) string {
 		i18nKey = `workspace_field_planned_start_date`
 	case `planned_end_date`:
 		i18nKey = `workspace_field_planned_end_date`
+	case `responsible_ids`:
+		i18nKey = `workspace_field_responsible`
 	case `assignee`:
 		i18nKey = `workspace_field_assignee`
+	case `started_at`:
+		i18nKey = `workspace_field_started_at`
+	case `ended_at`:
+		i18nKey = `workspace_field_ended_at`
 	case `created_at`:
 		i18nKey = `workspace_field_created_time`
 	case `created_by`:
@@ -353,53 +382,25 @@ func ResetFieldConfigs(model ResetFieldConfigsModel) error {
 	if !ok {
 		return ErrFieldOrderInvalid
 	}
-	adminId, wsId, typeKey, now := model.AdminId, model.WsId, model.TypeKey, tool.Time2Int()
-	for _, preset := range presets {
-		m := msql.Model(define.TableWorkItemFieldConfigs, define.Postgres)
-		_, err := m.Where2([][]string{
-			{`admin_id`, cast.ToString(adminId)},
-			{`workspace_id`, wsId},
-			{`type_key`, typeKey},
-			{`field_key`, preset.Key},
-		}).Update(msql.Datas{
-			`is_enabled`:  preset.Enabled,
-			`is_editable`: preset.Editable,
-			`is_locked`:   preset.Locked,
-			`sort_order`:  preset.SortOrder,
-			`updated_at`:  now,
-		})
-		if err != nil {
-			logs.Error("reset field config sql:%s, err:%s", m.GetLastSql(), err.Error())
-			return err
-		}
-	}
-	// Custom fields keep their relative order and are placed after the built-in fields as a whole.
-	customM := msql.Model(define.TableCustomFields, define.Postgres)
-	customRows, err := customM.Field(`id`).Where2([][]string{
-		{`admin_id`, cast.ToString(adminId)},
-		{`workspace_id`, wsId},
-		{`type_key`, typeKey},
-	}).Order(`sort_order asc, id asc`).Select()
+	tx, err := msql.Begin(define.Postgres)
 	if err != nil {
-		logs.Error("list custom fields for reset sql:%s, err:%s", customM.GetLastSql(), err.Error())
 		return err
 	}
-	for index, row := range customRows {
-		m := msql.Model(define.TableCustomFields, define.Postgres)
-		if _, err = m.Where2([][]string{
-			{`admin_id`, cast.ToString(adminId)},
-			{`workspace_id`, wsId},
-			{`type_key`, typeKey},
-			{`id`, row[`id`]},
-		}).Update(msql.Datas{
-			`sort_order`: len(presets) + index,
-			`updated_at`: now,
-		}); err != nil {
-			logs.Error("reset custom field order sql:%s, err:%s", m.GetLastSql(), err.Error())
+	defer func() { _ = tx.Rollback() }()
+	now := tool.Time2Int()
+	for _, preset := range presets {
+		query := "UPDATE " + define.TableWorkItemFieldConfigs + " SET is_enabled=$1,is_editable=$2,is_locked=$3,sort_order=$4,updated_at=$5,edit_scope='all',edit_role_ids='{}' WHERE admin_id=$6 AND workspace_id=$7 AND type_key=$8 AND field_key=$9"
+		if _, err = msql.RawExec(define.Postgres, query, tx, preset.Enabled, preset.Editable, preset.Locked, preset.SortOrder, now, model.AdminId, model.WsId, model.TypeKey, preset.Key); err != nil {
+			logs.Error("sql:%s err:%s", query, err.Error())
 			return err
 		}
 	}
-	return nil
+	query := "WITH ordered AS (SELECT id,ROW_NUMBER() OVER(ORDER BY sort_order,id)-1 AS position FROM " + define.TableCustomFields + " WHERE admin_id=$1 AND workspace_id=$2 AND type_key=$3) UPDATE " + define.TableCustomFields + " c SET sort_order=$4+ordered.position,updated_at=$5,edit_scope='all',edit_role_ids='{}' FROM ordered WHERE c.id=ordered.id AND c.admin_id=$1 AND c.workspace_id=$2 AND c.type_key=$3"
+	if _, err = msql.RawExec(define.Postgres, query, tx, model.AdminId, model.WsId, model.TypeKey, len(presets), now); err != nil {
+		logs.Error("sql:%s err:%s", query, err.Error())
+		return err
+	}
+	return tx.Commit()
 }
 
 // SaveFieldConfigs batch-saves built-in field configs of a specified type under the workspace (updates is_enabled/is_editable/sort_order by key).
@@ -427,11 +428,14 @@ func SaveFieldConfigs(model SaveFieldConfigsModel) error {
 			enabled = 1 // Force-enable locked fields.
 		}
 		editable := item.Editable
+		if item.Key == "description" && typeKey != define.TypeKeyPlanning {
+			editable = 1
+		}
 		if typeKey == define.TypeKeyRequirement {
 			switch item.Key {
 			case `estimated_work_hours`, `completed_work_hours`:
 				editable = 1
-			case `work_progress`, `remaining_work_hours`, `overtime_work_hours`:
+			case `started_at`, `ended_at`, `work_progress`, `remaining_work_hours`, `overtime_work_hours`:
 				editable = 0
 			}
 		}
@@ -505,22 +509,26 @@ type CustomFieldConfig struct {
 
 // CustomFieldModel is the custom field business data.
 type CustomFieldModel struct {
-	Id          int
-	Key         string
-	Name        string // Display name entered by the user, not an i18n key
-	FieldType   string
-	IsRequired  int
-	SortOrder   int
-	IsEnabled   int
-	Options     []CustomFieldOption
-	IntegerOnly int
-	MemberScope string
-	RoleIds     []int
-	Cascader    []CustomFieldCascaderNode
+	FieldEditPolicyModel
+	CanEdit           bool
+	SupportsEditRoles bool
+	Id                int
+	Key               string
+	Name              string // Display name entered by the user, not an i18n key
+	FieldType         string
+	IsRequired        int
+	SortOrder         int
+	IsEnabled         int
+	Options           []CustomFieldOption
+	IntegerOnly       int
+	MemberScope       string
+	RoleIds           []int
+	Cascader          []CustomFieldCascaderNode
 }
 
 // ListCustomFieldsModel describes the custom field list use case.
 type ListCustomFieldsModel struct {
+	UserId  int
 	AdminId int
 	WsId    string
 	TypeKey string
@@ -529,14 +537,27 @@ type ListCustomFieldsModel struct {
 
 // ListCustomFields returns the custom field list of a specified type under the workspace (ordered by sort_order).
 func ListCustomFields(model ListCustomFieldsModel) (ListCustomFieldsModel, error) {
-	m := msql.Model(define.TableCustomFields, define.Postgres)
-	list, err := m.Field(customFieldQueryFields).Where2([][]string{
-		{`admin_id`, cast.ToString(model.AdminId)},
-		{`workspace_id`, model.WsId},
-		{`type_key`, model.TypeKey},
-	}).Order(`sort_order asc, id asc`).Select()
+	result, err := listCustomFieldsTx(nil, model)
+	if err != nil || model.UserId == 0 {
+		return result, err
+	}
+	access, err := LoadFieldEditAccess(FieldEditAccessModel{AdminId: model.AdminId, UserId: model.UserId, WsId: model.WsId, TypeKey: model.TypeKey})
 	if err != nil {
-		logs.Error("sql:%s, err:%s", m.GetLastSql(), err.Error())
+		return result, err
+	}
+	for i := range result.Items {
+		item := &result.Items[i]
+		item.SupportsEditRoles = SupportsFieldEditRoles(model.TypeKey, "custom:"+strconv.Itoa(item.Id))
+		item.CanEdit = access.canEditField("custom:"+strconv.Itoa(item.Id), item.FieldEditPolicyModel, true)
+	}
+	return result, nil
+}
+
+func listCustomFieldsTx(tx *sql.Tx, model ListCustomFieldsModel) (ListCustomFieldsModel, error) {
+	query := `SELECT ` + customFieldQueryFields + ` FROM ` + define.TableCustomFields + ` WHERE admin_id=$1 AND workspace_id=$2 AND type_key=$3 ORDER BY sort_order ASC,id ASC`
+	list, err := msql.RawValues(define.Postgres, query, tx, model.AdminId, model.WsId, model.TypeKey)
+	if err != nil {
+		logs.Error("sql:%s err:%s", query, err.Error())
 		return ListCustomFieldsModel{}, err
 	}
 	items := make([]CustomFieldModel, 0, len(list))
@@ -576,19 +597,24 @@ func toCustomFieldModel(row msql.Params) (CustomFieldModel, error) {
 			return CustomFieldModel{}, fmt.Errorf(`parse custom field config_json: %w`, decodeErr)
 		}
 	}
+	policy, err := fieldEditPolicy(row[`edit_scope`], row[`edit_role_ids`])
+	if err != nil {
+		return CustomFieldModel{}, err
+	}
 	return CustomFieldModel{
-		Id:          id,
-		Key:         row[`key`],
-		Name:        row[`name`],
-		FieldType:   row[`field_type`],
-		IsRequired:  isRequired,
-		SortOrder:   sortOrder,
-		IsEnabled:   isEnabled,
-		Options:     cfg.Options,
-		IntegerOnly: cfg.IntegerOnly,
-		MemberScope: cfg.MemberScope,
-		RoleIds:     cfg.RoleIds,
-		Cascader:    cfg.Cascader,
+		FieldEditPolicyModel: policy,
+		Id:                   id,
+		Key:                  row[`key`],
+		Name:                 row[`name`],
+		FieldType:            row[`field_type`],
+		IsRequired:           isRequired,
+		SortOrder:            sortOrder,
+		IsEnabled:            isEnabled,
+		Options:              cfg.Options,
+		IntegerOnly:          cfg.IntegerOnly,
+		MemberScope:          cfg.MemberScope,
+		RoleIds:              cfg.RoleIds,
+		Cascader:             cfg.Cascader,
 	}, nil
 }
 

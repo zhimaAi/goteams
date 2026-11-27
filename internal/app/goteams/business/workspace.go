@@ -317,7 +317,7 @@ func CreateWorkspace(model CreateWorkspaceModel) (int, error) {
 	}
 
 	// Seed preset project roles for this workspace (project_admin + project_member).
-	projectAdminRoleId, _, err := seedWorkspaceRoles(adminId, wsId, now)
+	projectAdminRoleId, _, err := seedWorkspaceRoles(adminId, wsId, now, model.WorkspaceType == define.WorkspaceTypeIssue)
 	if err != nil {
 		logs.Error("seed workspace roles failed: %s", err.Error())
 		return 0, err
@@ -371,7 +371,7 @@ func workspaceSlugExists(adminId int, slug string) bool {
 
 // seedWorkspaceRoles creates the preset project roles (admin + member) for a workspace.
 // Returns the DB role IDs for project_admin and project_member.
-func seedWorkspaceRoles(adminId int, wsId string, now int) (adminRoleId int, memberRoleId int, err error) {
+func seedWorkspaceRoles(adminId int, wsId string, now int, issueWorkspace bool) (adminRoleId int, memberRoleId int, err error) {
 	// Create project_admin role (data view scope defaults to all members).
 	adminRoleId, err = insertWorkspaceRole(adminId, wsId, lib_i18n.WrapKey("perm_role_project_admin"), lib_i18n.WrapKey("role_desc_project_admin"), permission.ScopeProject, DataViewScopeAll, now)
 	if err != nil {
@@ -385,7 +385,7 @@ func seedWorkspaceRoles(adminId int, wsId string, now int) (adminRoleId int, mem
 	}
 
 	// Assign permissions to project_admin (all project permissions).
-	if err := assignRolePermissions(adminId, adminRoleId, getPresetProjectAdminPerms()); err != nil {
+	if err := assignRolePermissions(adminId, adminRoleId, excludeIssueReportPermissions(getPresetProjectAdminPerms(), issueWorkspace)); err != nil {
 		return 0, 0, err
 	}
 
@@ -674,6 +674,9 @@ func ResetStatuses(model ResetStatusesModel) error {
 	columns := "admin_id,workspace_id,created_at,updated_at," + initial + "," + final
 	values := "$1,$2,$3,$3,$4,$5"
 	updates := "updated_at=EXCLUDED.updated_at," + initial + "=EXCLUDED." + initial + "," + final + "=EXCLUDED." + final
+	if model.TypeKey == define.TypeKeyRequirement {
+		updates += ",requirement_time_enabled=FALSE,requirement_start_status_ids='',requirement_end_status_ids=''"
+	}
 	args := []any{model.AdminId, model.WsId, now, initialStatusId, joinIntSlice(finalStatusIds)}
 	if model.TypeKey != define.TypeKeyPlanning {
 		completed := model.TypeKey + "_completed_status_ids"
@@ -688,6 +691,9 @@ func ResetStatuses(model ResetStatusesModel) error {
 	}
 	if err = resetDisplaySettingStatusesTx(tx, model.AdminId, model.WsId, model.TypeKey); err != nil {
 		logs.Error("重置状态显示设置失败: %s", err.Error())
+		return err
+	}
+	if err = removeStatusTransitionRulesTx(tx, model.AdminId, model.WsId, model.TypeKey, 0); err != nil {
 		return err
 	}
 	if err = tx.Commit(); err != nil {
@@ -722,36 +728,42 @@ type presetField struct {
 
 // presetFields holds the default built-in field configuration; array order is the default display order.
 var requirementPresetFields = []presetField{
-	{Key: `id`, Enabled: 1, Editable: 0, Locked: 1, SortOrder: 0},                 // ID: must be enabled, read-only, locked (cannot be closed), not modifiable.
-	{Key: `title`, Enabled: 1, Editable: 0, Locked: 1, SortOrder: 1},              // Title: must be enabled, not editable, locked.
-	{Key: `status`, Enabled: 1, Editable: 0, Locked: 1, SortOrder: 2},             // Status: must be enabled, not editable, locked (cannot be closed).
-	{Key: `version`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 3},            // Iteration.
-	{Key: `category`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 4},           // Requirement category.
-	{Key: `priority`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 5},           // Priority.
-	{Key: `planned_start_date`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 6}, // Planned start: enabled by default.
-	{Key: `planned_end_date`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 7},   // Planned end: enabled by default.
-	{Key: `assignee`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 8},           // Assignee.
-	{Key: `created_at`, Enabled: 1, Editable: 0, Locked: 0, SortOrder: 9},         // Created at: read-only.
-	{Key: `created_by`, Enabled: 1, Editable: 0, Locked: 0, SortOrder: 10},        // Created by: read-only.
-	{Key: `estimated_work_hours`, Enabled: 0, Editable: 1, Locked: 0, SortOrder: 11},
-	{Key: `work_progress`, Enabled: 0, Editable: 0, Locked: 0, SortOrder: 12},
-	{Key: `completed_work_hours`, Enabled: 0, Editable: 1, Locked: 0, SortOrder: 13},
-	{Key: `remaining_work_hours`, Enabled: 0, Editable: 0, Locked: 0, SortOrder: 14},
-	{Key: `overtime_work_hours`, Enabled: 0, Editable: 0, Locked: 0, SortOrder: 15},
+	{Key: `id`, Enabled: 1, Editable: 0, Locked: 1, SortOrder: 0},    // ID: must be enabled, read-only, locked (cannot be closed), not modifiable.
+	{Key: `title`, Enabled: 1, Editable: 0, Locked: 1, SortOrder: 1}, // Title: must be enabled, not editable, locked.
+	{Key: `description`, Enabled: 1, Editable: 1, Locked: 1, SortOrder: 2},
+	{Key: `status`, Enabled: 1, Editable: 0, Locked: 1, SortOrder: 3},             // Status: must be enabled, not editable, locked (cannot be closed).
+	{Key: `version`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 4},            // Iteration.
+	{Key: `category`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 5},           // Requirement category.
+	{Key: `priority`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 6},           // Priority.
+	{Key: `planned_start_date`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 7}, // Planned start: enabled by default.
+	{Key: `planned_end_date`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 8},   // Planned end: enabled by default.
+	{Key: `assignee`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 9},           // Assignee.
+	{Key: `created_at`, Enabled: 1, Editable: 0, Locked: 0, SortOrder: 10},        // Created at: read-only.
+	{Key: `created_by`, Enabled: 1, Editable: 0, Locked: 0, SortOrder: 11},        // Created by: read-only.
+	{Key: `estimated_work_hours`, Enabled: 0, Editable: 1, Locked: 0, SortOrder: 12},
+	{Key: `started_at`, Enabled: 0, Editable: 0, Locked: 0, SortOrder: 13},
+	{Key: `ended_at`, Enabled: 0, Editable: 0, Locked: 0, SortOrder: 14},
+	{Key: `work_progress`, Enabled: 0, Editable: 0, Locked: 0, SortOrder: 15},
+	{Key: `completed_work_hours`, Enabled: 0, Editable: 1, Locked: 0, SortOrder: 16},
+	{Key: `remaining_work_hours`, Enabled: 0, Editable: 0, Locked: 0, SortOrder: 17},
+	{Key: `overtime_work_hours`, Enabled: 0, Editable: 0, Locked: 0, SortOrder: 18},
 }
 
 var defectPresetFields = []presetField{
 	{Key: `id`, Enabled: 1, Editable: 0, Locked: 1, SortOrder: 0},
 	{Key: `title`, Enabled: 1, Editable: 0, Locked: 1, SortOrder: 1},
-	{Key: `status`, Enabled: 1, Editable: 0, Locked: 1, SortOrder: 2},
-	{Key: `version`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 3},
-	{Key: `priority`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 4},
-	{Key: `severity_id`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 5},
-	{Key: `planned_start_date`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 6},
-	{Key: `planned_end_date`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 7},
-	{Key: `assignee`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 8},
-	{Key: `created_at`, Enabled: 1, Editable: 0, Locked: 0, SortOrder: 9},
-	{Key: `created_by`, Enabled: 1, Editable: 0, Locked: 0, SortOrder: 10},
+	{Key: `description`, Enabled: 1, Editable: 1, Locked: 1, SortOrder: 2},
+	{Key: `status`, Enabled: 1, Editable: 0, Locked: 1, SortOrder: 3},
+	{Key: `version`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 4},
+	{Key: `priority`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 5},
+	{Key: `severity_id`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 6},
+	{Key: `estimated_work_hours`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 7},
+	{Key: `planned_start_date`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 8},
+	{Key: `planned_end_date`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 9},
+	{Key: `assignee`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 10},
+	{Key: `responsible_ids`, Enabled: 1, Editable: 1, Locked: 0, SortOrder: 11},
+	{Key: `created_at`, Enabled: 1, Editable: 0, Locked: 0, SortOrder: 12},
+	{Key: `created_by`, Enabled: 1, Editable: 0, Locked: 0, SortOrder: 13},
 }
 
 // planningPresetFields are the built-in fields for planning: row index, planning name, and status are locked (cannot be closed).
@@ -947,10 +959,13 @@ func removeWorkspaceIconFile(adminId int, wsId string, oldIcon string, currentIc
 // settingsFields are the workspaces_settings query columns, to avoid SELECT *.
 const settingsFields = `requirement_initial_status_id,defect_initial_status_id,planning_initial_status_id,` +
 	`requirement_final_status_ids,defect_final_status_ids,planning_final_status_ids,requirement_completed_status_ids,defect_completed_status_ids,` +
-	`requirement_status_transition,defect_status_transition,requirement_aging_control`
+	`requirement_status_transition,defect_status_transition,requirement_aging_control,requirement_time_enabled,requirement_start_status_ids,requirement_end_status_ids`
 
 // WorkspaceSettingsModel holds the workspace initial/terminal status configuration business data.
 type WorkspaceSettingsModel struct {
+	RequirementTimeEnabled        bool
+	RequirementStartStatusIds     []int
+	RequirementEndStatusIds       []int
 	AdminId                       int
 	WsId                          string
 	RequirementInitialStatusId    int
@@ -972,6 +987,9 @@ type WorkspaceSettingsModel struct {
 
 // UpdateWorkspaceSettingsModel is the partial-update model for workspace initial/terminal status config; nil means the field is not updated this time.
 type UpdateWorkspaceSettingsModel struct {
+	RequirementTimeEnabled        *bool
+	RequirementStartStatusIds     *[]int
+	RequirementEndStatusIds       *[]int
 	AdminId                       int
 	WsId                          string
 	RequirementInitialStatusId    *int
@@ -984,13 +1002,15 @@ type UpdateWorkspaceSettingsModel struct {
 	DefectCompletedStatusIds      *[]int
 	DefectClosedStatusIds         *[]int
 	PlanningFinalStatusIds        *[]int
-	RequirementStatusTransition   *StatusTransitionFormModel
-	DefectStatusTransition        *StatusTransitionFormModel
+	RequirementStatusTransition   *StatusTransitionFormUpdateModel
+	DefectStatusTransition        *StatusTransitionFormUpdateModel
 	RequirementAgingControl       *AgingControlForm
 }
 
 // GetWorkspaceSettings reads the workspace initial/final state config (admin_id isolation).
 func GetWorkspaceSettings(model WorkspaceSettingsModel) (WorkspaceSettingsModel, error) {
+	model.RequirementStartStatusIds = []int{}
+	model.RequirementEndStatusIds = []int{}
 	m := msql.Model(define.TableWorkspaceSettings, define.Postgres)
 	row, err := m.Field(settingsFields).Where2([][]string{
 		{`admin_id`, cast.ToString(model.AdminId)},
@@ -1005,6 +1025,18 @@ func GetWorkspaceSettings(model WorkspaceSettingsModel) (WorkspaceSettingsModel,
 		model.DefectStatusTransition = defaultStatusTransitionForm()
 		model.RequirementAgingControl = defaultAgingControlForm()
 		return model, nil
+	}
+	model.RequirementTimeEnabled, err = strconv.ParseBool(row[`requirement_time_enabled`])
+	if err != nil {
+		return WorkspaceSettingsModel{}, err
+	}
+	model.RequirementStartStatusIds, err = parseWorkItemTimeStatusIDs(row[`requirement_start_status_ids`])
+	if err != nil {
+		return WorkspaceSettingsModel{}, err
+	}
+	model.RequirementEndStatusIds, err = parseWorkItemTimeStatusIDs(row[`requirement_end_status_ids`])
+	if err != nil {
+		return WorkspaceSettingsModel{}, err
 	}
 	model.RequirementInitialStatusId = cast.ToInt(row[`requirement_initial_status_id`])
 	model.DefectInitialStatusId = cast.ToInt(row[`defect_initial_status_id`])
@@ -1050,20 +1082,6 @@ func UpdateWorkspaceSettings(model UpdateWorkspaceSettingsModel) error {
 	if model.PlanningFinalStatusIds != nil {
 		data[`planning_final_status_ids`] = joinIntSlice(*model.PlanningFinalStatusIds)
 	}
-	if model.RequirementStatusTransition != nil {
-		encoded, encodeErr := encodeStatusTransitionForm(*model.RequirementStatusTransition)
-		if encodeErr != nil {
-			return encodeErr
-		}
-		data[`requirement_status_transition`] = encoded
-	}
-	if model.DefectStatusTransition != nil {
-		encoded, encodeErr := encodeStatusTransitionForm(*model.DefectStatusTransition)
-		if encodeErr != nil {
-			return encodeErr
-		}
-		data[`defect_status_transition`] = encoded
-	}
 	if model.RequirementAgingControl != nil {
 		encoded, encodeErr := encodeAgingControlForm(*model.RequirementAgingControl)
 		if encodeErr != nil {
@@ -1071,7 +1089,16 @@ func UpdateWorkspaceSettings(model UpdateWorkspaceSettingsModel) error {
 		}
 		data[`requirement_aging_control`] = encoded
 	}
-	if len(data) == 0 && !recalcVersionCounts {
+	if model.RequirementTimeEnabled != nil {
+		data[`requirement_time_enabled`] = *model.RequirementTimeEnabled
+	}
+	if model.RequirementStartStatusIds != nil {
+		data[`requirement_start_status_ids`] = joinIntSlice(*model.RequirementStartStatusIds)
+	}
+	if model.RequirementEndStatusIds != nil {
+		data[`requirement_end_status_ids`] = joinIntSlice(*model.RequirementEndStatusIds)
+	}
+	if len(data) == 0 && !recalcVersionCounts && model.RequirementStatusTransition == nil && model.DefectStatusTransition == nil {
 		return nil
 	}
 	data[`updated_at`] = tool.Time2Int()
@@ -1084,7 +1111,12 @@ func UpdateWorkspaceSettings(model UpdateWorkspaceSettingsModel) error {
 			logs.Error("rollback workspace completion settings: %s", rollbackErr.Error())
 		}
 	}()
-	rows, err := msql.RawValues(define.Postgres, `SELECT id,requirement_final_status_ids,defect_final_status_ids,requirement_completed_status_ids,defect_completed_status_ids FROM `+define.TableWorkspaceSettings+` WHERE admin_id=$1 AND workspace_id=$2 FOR UPDATE`, tx, adminId, cast.ToInt(wsId))
+	if model.RequirementStatusTransition != nil || model.DefectStatusTransition != nil || model.RequirementTimeEnabled != nil || model.RequirementStartStatusIds != nil || model.RequirementEndStatusIds != nil {
+		if _, err = lockStatusActionWorkspace(tx, adminId, cast.ToInt(wsId), true); err != nil {
+			return err
+		}
+	}
+	rows, err := msql.RawValues(define.Postgres, `SELECT id,requirement_status_transition,defect_status_transition,requirement_time_enabled,requirement_start_status_ids,requirement_end_status_ids,requirement_final_status_ids,defect_final_status_ids,requirement_completed_status_ids,defect_completed_status_ids FROM `+define.TableWorkspaceSettings+` WHERE admin_id=$1 AND workspace_id=$2 FOR UPDATE`, tx, adminId, cast.ToInt(wsId))
 	if err != nil {
 		return err
 	}
@@ -1100,6 +1132,32 @@ func UpdateWorkspaceSettings(model UpdateWorkspaceSettingsModel) error {
 	var old msql.Params
 	if len(rows) > 0 {
 		old = rows[0]
+	}
+	for _, change := range []struct {
+		typ  string
+		form *StatusTransitionFormUpdateModel
+	}{
+		{define.TypeKeyRequirement, model.RequirementStatusTransition}, {define.TypeKeyDefect, model.DefectStatusTransition},
+	} {
+		if change.form == nil {
+			continue
+		}
+		column := change.typ + "_status_transition"
+		form, err := mergeStatusTransitionUpdate(parseStatusTransitionForm(old[column]), *change.form)
+		if err != nil {
+			return err
+		}
+		if err = validateStatusTransitionSettingsTx(tx, adminId, wsId, change.typ, form); err != nil {
+			return err
+		}
+		encoded, err := encodeStatusTransitionForm(form)
+		if err != nil {
+			return err
+		}
+		data[column] = encoded
+	}
+	if err = validateWorkItemTimeSettingsTx(tx, adminId, cast.ToInt(wsId), old, model); err != nil {
+		return err
 	}
 	for _, group := range []workspaceStatusPatch{
 		{define.TypeKeyRequirement, model.RequirementInitialStatusId, model.RequirementFinalStatusIds, model.RequirementCompletedStatusIds, model.RequirementClosedStatusIds},
@@ -1588,6 +1646,9 @@ var workspaceTablesByWorkspaceId = append([]string{
 	define.TableWorkspaceApplications,
 	define.TableDashboardVisibilityRoles,
 	define.TableDashboardVisibilityMembers,
+	define.TableSatisfactionInvitations,
+	define.TableSatisfactions,
+	define.TableSatisfactionConfigs,
 	define.TableDashboardEditors,
 	define.TableDashboardCards,
 	define.TableDashboardAnnouncements,

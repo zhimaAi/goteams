@@ -8,6 +8,11 @@ import (
 
 // RegSLARoutes 注册工单工作空间的 SLA 配置接口。
 func RegSLARoutes(r lib_web.Route) {
+	statistics := "/api/workspaces/:wsId/issue-statistics"
+	r[http.MethodGet][statistics+"/overview"] = wrapAction(withAllPerm("issue_statistics:view", "requirement:view"), controller.GetIssueOverview)
+	r[http.MethodGet][statistics+"/overview/items"] = wrapAction(withAllPerm("issue_statistics:view", "requirement:view"), controller.ListIssueOverviewItems)
+	r[http.MethodGet][statistics+"/metadata"] = wrapAction(withAllPerm("issue_statistics:view", "requirement:view"), controller.GetIssueStatisticsMetadata)
+	r[http.MethodPost][statistics+"/sla/:view"] = wrapAction(withAllPerm("issue_statistics:view", "requirement:view"), controller.QueryIssueStatistics)
 	prefix := "/api/workspaces/:wsId/sla"
 	r[http.MethodGet][prefix+"/metadata"] = wrapAction(withAnyPerm("sla:view", "sla:manage"), controller.GetSLAMetadata)
 	r[http.MethodPost][prefix+"/action-executions/:actionId/retry"] = wrapAction(withPerm("sla:manage"), controller.RetrySLAAction)

@@ -80,6 +80,8 @@ type listRequirementsResponseItem struct {
 	RemainingWorkHours string   `json:"remaining_work_hours"`
 	OvertimeWorkHours  string   `json:"overtime_work_hours"`
 	WorkProgress       int      `json:"work_progress"`
+	StartedAt          string   `json:"started_at"`
+	EndedAt            string   `json:"ended_at"`
 	CreatedAt          string   `json:"created_at"`
 	UpdatedAt          string   `json:"updated_at"`
 	StatusName         string   `json:"status_name"`
@@ -96,6 +98,8 @@ type listRequirementsResponseItem struct {
 	ParentTitle        string   `json:"parent_title"`
 	AssigneeIds        []int    `json:"assignee_ids"`
 	AssigneeNames      []string `json:"assignee_names"`
+	ResponsibleIds     []int    `json:"responsible_ids,omitempty"`
+	ResponsibleNames   []string `json:"responsible_names,omitempty"`
 	AssigneeAvatars    []string `json:"assignee_avatars"`
 	AssigneeUsernames  []string `json:"assignee_usernames"`
 	HasChildren        bool     `json:"has_children"`
@@ -138,6 +142,8 @@ func toListRequirementsResponse(model business.ListRequirementsModel, lang strin
 			RemainingWorkHours: formatRequirementWorkHours(item.RemainingWorkHours),
 			OvertimeWorkHours:  formatRequirementWorkHours(item.OvertimeWorkHours),
 			WorkProgress:       item.WorkProgress,
+			StartedAt:          strconv.FormatInt(item.StartedAt, 10),
+			EndedAt:            strconv.FormatInt(item.EndedAt, 10),
 			CreatedAt:          strconv.FormatInt(item.CreatedAt, 10),
 			UpdatedAt:          strconv.FormatInt(item.UpdatedAt, 10),
 			StatusName:         lib_i18n.ShowStored(lang, item.StatusName),
@@ -154,6 +160,8 @@ func toListRequirementsResponse(model business.ListRequirementsModel, lang strin
 			ParentTitle:        item.ParentTitle,
 			AssigneeIds:        item.AssigneeIds,
 			AssigneeNames:      item.AssigneeNames,
+			ResponsibleIds:     item.ResponsibleIds,
+			ResponsibleNames:   item.ResponsibleNames,
 			AssigneeAvatars:    item.AssigneeAvatars,
 			AssigneeUsernames:  item.AssigneeUsernames,
 			HasChildren:        item.HasChildren,
@@ -464,6 +472,10 @@ func listRequirements(c *gin.Context, contextType string) {
 			abortNotFound(c, lib_i18n.Show(lang, `view_not_found`))
 			return
 		}
+		if errors.Is(err, business.ErrSLAInvalid) || errors.Is(err, business.ErrSLAWorkspace) || errors.Is(err, business.ErrSLANotFound) || errors.Is(err, validate.ErrViewFiltersInvalid) {
+			abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `requirement.list.issue_filter`, err)
+			return
+		}
 		abortInternal(c, lib_i18n.Show(lang, define.MsgError), `requirement.list.list_requirements`, err)
 		return
 	}
@@ -632,6 +644,7 @@ type createRequirementRequest struct {
 	ParentId           any                    `json:"parent_id"`
 	CategoryId         int                    `json:"category_id"`
 	AssigneeIds        requirementAssigneeIDs `json:"assignee_ids"`
+	ResponsibleIds     requirementAssigneeIDs `json:"responsible_ids"`
 	VersionId          any                    `json:"version_id"`
 	PlannedStartDate   int64                  `json:"planned_start_date"`
 	PlannedEndDate     int64                  `json:"planned_end_date"`
@@ -738,6 +751,7 @@ func CreateRequirement(c *gin.Context) {
 		ParentId:           parentInt,
 		CategoryId:         req.CategoryId,
 		AssigneeIds:        assigneeIds,
+		ResponsibleIds:     []int(req.ResponsibleIds),
 		VersionId:          versionInt,
 		PlannedStartDate:   req.PlannedStartDate,
 		PlannedEndDate:     req.PlannedEndDate,
@@ -794,6 +808,10 @@ func CreateRequirement(c *gin.Context) {
 		}
 		if errors.Is(err, business.ErrCustomFieldValueInvalid) {
 			abortBadRequest(c, business.CustomFieldValidationMessage(lang, err), `requirement.create.custom_fields`, err)
+			return
+		}
+		if errors.Is(err, business.ErrDefectResponsibleInvalid) {
+			abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `requirement.create.responsible_ids`, err)
 			return
 		}
 		if errors.Is(err, business.ErrRequirementAssigneesInvalid) {
@@ -901,7 +919,7 @@ func requirementResponseItem(item msql.Params, lang string) map[string]any {
 	for key, value := range item {
 		response[key] = value
 	}
-	for _, field := range []string{`assignee_ids`, `assignee_names`, `assignee_avatars`, `assignee_usernames`} {
+	for _, field := range []string{`assignee_ids`, `assignee_names`, `assignee_avatars`, `assignee_usernames`, `responsible_ids`, `responsible_names`} {
 		var values any
 		if err := json.Unmarshal([]byte(item[field]), &values); err == nil {
 			response[field] = values
@@ -918,7 +936,26 @@ func requirementResponseItem(item msql.Params, lang string) map[string]any {
 	return response
 }
 
-// UpdateRequirement Update the requirements, only modifying the fields explicitly provided in the request
+type updateRequirementRequest struct {
+	Title              *string                 `json:"title"`
+	Description        *string                 `json:"description"`
+	DescriptionMode    *string                 `json:"description_mode"`
+	Type               *string                 `json:"type"`
+	SeverityId         json.RawMessage         `json:"severity_id"`
+	Priority           json.RawMessage         `json:"priority"`
+	StatusId           *int                    `json:"status_id"`
+	ParentId           *int                    `json:"parent_id"`
+	AssigneeIds        *requirementAssigneeIDs `json:"assignee_ids"`
+	ResponsibleIds     *requirementAssigneeIDs `json:"responsible_ids"`
+	VersionId          *int                    `json:"version_id"`
+	PlannedStartDate   *int64                  `json:"planned_start_date"`
+	PlannedEndDate     *int64                  `json:"planned_end_date"`
+	EstimatedWorkHours *float64                `json:"estimated_work_hours"`
+	CustomFields       customFieldValues       `json:"custom_fields"`
+	ImageFileIds       []int                   `json:"image_file_ids"`
+}
+
+// UpdateRequirement 只提交明确提供的字段，由业务层校验字段编辑授权。
 func UpdateRequirement(c *gin.Context) {
 	lang := lib_i18n.GetLang(c)
 	wsId, err := positiveParam(c, `wsId`)
@@ -934,23 +971,7 @@ func UpdateRequirement(c *gin.Context) {
 	adminId := cast.ToInt(c.GetInt(`adminId`))
 	userId := cast.ToInt(c.GetInt(`userId`))
 
-	var req struct {
-		Title              *string                 `json:"title"`
-		Description        *string                 `json:"description"`
-		DescriptionMode    *string                 `json:"description_mode"`
-		Type               *string                 `json:"type"`
-		SeverityId         json.RawMessage         `json:"severity_id"`
-		Priority           json.RawMessage         `json:"priority"`
-		StatusId           *int                    `json:"status_id"`
-		ParentId           *int                    `json:"parent_id"`
-		AssigneeIds        *requirementAssigneeIDs `json:"assignee_ids"`
-		VersionId          *int                    `json:"version_id"`
-		PlannedStartDate   *int64                  `json:"planned_start_date"`
-		PlannedEndDate     *int64                  `json:"planned_end_date"`
-		EstimatedWorkHours *float64                `json:"estimated_work_hours"`
-		CustomFields       map[string]any          `json:"custom_fields"`
-		ImageFileIds       []int                   `json:"image_file_ids"`
-	}
+	var req updateRequirementRequest
 	if err = c.ShouldBindJSON(&req); err != nil {
 		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `requirement.update.bind`, err)
 		return
@@ -1001,51 +1022,24 @@ func UpdateRequirement(c *gin.Context) {
 		abortNotFound(c, lib_i18n.Show(lang, define.MsgRequirementNotFound))
 		return
 	}
-	if !hasWorkItemPermission(adminId, userId, cast.ToString(wsId), current[`type`], `edit`) {
-		abortForbidden(c, lib_i18n.Show(lang, define.MsgForbidden))
-		return
-	}
 
-	// Only update the fields explicitly provided in the request, and if priority is null, it will be cleared to 0.
-	updates := map[string]any{}
-	if req.Title != nil {
-		updates[`title`] = *req.Title
-	}
-	if req.Description != nil {
-		updates[`description`] = *req.Description
-	}
-	if req.DescriptionMode != nil {
-		updates[`description_mode`] = *req.DescriptionMode
-	}
-	if severityId != nil {
-		updates[`severity_id`] = *severityId
-	}
+	model := business.UpdateRequirementModel{AdminId: adminId, UserId: userId, WorkspaceId: wsId, ItemId: reqId, Title: req.Title, Description: req.Description, DescriptionMode: req.DescriptionMode, SeverityId: severityId, StatusId: req.StatusId, ParentId: req.ParentId, VersionId: req.VersionId, PlannedStartDate: req.PlannedStartDate, PlannedEndDate: req.PlannedEndDate, EstimatedWorkHours: req.EstimatedWorkHours, CustomFields: business.CustomFieldValues(req.CustomFields), ImageFileIds: req.ImageFileIds}
 	if priorityProvided {
-		updates[`priority`] = priorityInt
-	}
-	if req.StatusId != nil {
-		updates[`status_id`] = *req.StatusId
-	}
-	if req.ParentId != nil {
-		updates[`parent_id`] = *req.ParentId
+		model.Priority = &priorityInt
 	}
 	if req.AssigneeIds != nil {
-		updates[`assignee_ids`] = []int(*req.AssigneeIds)
+		ids := []int(*req.AssigneeIds)
+		model.AssigneeIds = &ids
 	}
-	if req.VersionId != nil {
-		updates[`version_id`] = *req.VersionId
+	if req.ResponsibleIds != nil {
+		ids := []int(*req.ResponsibleIds)
+		model.ResponsibleIds = &ids
 	}
-	if req.PlannedStartDate != nil {
-		updates[`planned_start_date`] = *req.PlannedStartDate
-	}
-	if req.PlannedEndDate != nil {
-		updates[`planned_end_date`] = *req.PlannedEndDate
-	}
-	if req.EstimatedWorkHours != nil {
-		// 缺陷没有预计工时，由 UpdateRequirement 统一归零，这里不拦。
-		updates[`work_hours`] = *req.EstimatedWorkHours
-	}
-	if err = business.UpdateRequirement(adminId, cast.ToString(wsId), cast.ToString(reqId), updates, req.CustomFields, userId, req.ImageFileIds); err != nil {
+	if err = business.UpdateRequirement(model); err != nil {
+		if errors.Is(err, business.ErrFieldEditForbidden) {
+			abortForbidden(c, lib_i18n.Show(lang, define.MsgForbidden))
+			return
+		}
 		if errors.Is(err, business.ErrRequirementNotFound) {
 			abortNotFound(c, lib_i18n.Show(lang, define.MsgRequirementNotFound))
 			return
@@ -1084,6 +1078,10 @@ func UpdateRequirement(c *gin.Context) {
 		}
 		if errors.Is(err, business.ErrCustomFieldValueInvalid) {
 			abortBadRequest(c, business.CustomFieldValidationMessage(lang, err), `requirement.update.custom_fields`, err)
+			return
+		}
+		if errors.Is(err, business.ErrDefectResponsibleInvalid) {
+			abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `requirement.update.responsible_ids`, err)
 			return
 		}
 		if errors.Is(err, business.ErrRequirementAssigneesInvalid) {
@@ -1126,6 +1124,12 @@ func normalizeRequirementBatchIds(input []int) ([]int, error) {
 }
 
 // BatchUpdateRequirements updates a single field of work items in batch.
+type batchUpdateRequirementsRequest struct {
+	Ids   []int           `json:"ids" binding:"required"`
+	Field string          `json:"field" binding:"required"`
+	Value json.RawMessage `json:"value" binding:"required"`
+}
+
 func BatchUpdateRequirements(c *gin.Context) {
 	lang := lib_i18n.GetLang(c)
 	wsId, err := positiveParam(c, `wsId`)
@@ -1133,11 +1137,7 @@ func BatchUpdateRequirements(c *gin.Context) {
 		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `requirement.batch.workspace_id`, err)
 		return
 	}
-	var req struct {
-		Ids   []int           `json:"ids" binding:"required"`
-		Field string          `json:"field" binding:"required"`
-		Value json.RawMessage `json:"value" binding:"required"`
-	}
+	var req batchUpdateRequirementsRequest
 	if err = c.ShouldBindJSON(&req); err != nil {
 		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `requirement.batch.bind`, err)
 		return
@@ -1183,15 +1183,17 @@ func BatchUpdateRequirements(c *gin.Context) {
 		abortNotFound(c, lib_i18n.Show(lang, define.MsgRequirementNotFound))
 		return
 	}
-	for _, item := range items {
-		if !hasWorkItemPermission(adminId, userId, cast.ToString(wsId), item.Type, `edit`) {
-			abortForbidden(c, lib_i18n.Show(lang, define.MsgForbidden))
-			return
-		}
-	}
 
-	if err = business.BatchUpdateRequirements(adminId, cast.ToString(wsId), ids, req.Field, value, userId); err != nil {
+	model := business.BatchUpdateRequirementsModel{AdminId: adminId, UserId: userId, WorkspaceId: wsId, Ids: ids, Field: req.Field}
+	if req.Field == "assignee_ids" {
+		model.AssigneeIds = value.([]int)
+	} else {
+		model.Value = value.(int)
+	}
+	if err = business.BatchUpdateRequirements(model); err != nil {
 		switch {
+		case errors.Is(err, business.ErrFieldEditForbidden):
+			abortForbidden(c, lib_i18n.Show(lang, define.MsgForbidden))
 		case errors.Is(err, business.ErrRequirementNotFound):
 			abortNotFound(c, lib_i18n.Show(lang, define.MsgRequirementNotFound))
 		case errors.Is(err, business.ErrStatusNotFound):
@@ -1512,12 +1514,12 @@ func RestoreRequirementHistory(c *gin.Context) {
 		abortNotFound(c, lib_i18n.Show(lang, define.MsgRequirementNotFound))
 		return
 	}
-	if !hasWorkItemPermission(adminId, userId, cast.ToString(wsId), current[`type`], `edit`) {
+
+	err = business.RestoreRequirementDescription(adminId, cast.ToString(wsId), cast.ToString(reqId), historyId, req.Side, userId)
+	if errors.Is(err, business.ErrFieldEditForbidden) {
 		abortForbidden(c, lib_i18n.Show(lang, define.MsgForbidden))
 		return
 	}
-
-	err = business.RestoreRequirementDescription(adminId, cast.ToString(wsId), cast.ToString(reqId), historyId, req.Side, userId)
 	if err != nil {
 		if errors.Is(err, business.ErrRequirementHistoryNotFound) {
 			abortNotFound(c, lib_i18n.Show(lang, define.MsgRequirementHistoryNotFound))

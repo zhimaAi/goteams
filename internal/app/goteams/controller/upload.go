@@ -5,6 +5,7 @@ package controller
 import (
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"goteams/internal/app/goteams/business"
@@ -17,6 +18,9 @@ import (
 // UploadImage handles editor image uploads; only authenticated users may upload, and it returns a directly
 // accessible URL plus the enterprise file ledger id (so the image counts toward storage before the requirement exists).
 func UploadImage(c *gin.Context) {
+	if !authorizeWorkItemEditorUpload(c) {
+		return
+	}
 	lang := lib_i18n.GetLang(c)
 	adminID := c.GetInt("adminId")
 	wsID, err := positiveParam(c, `wsId`)
@@ -65,6 +69,9 @@ func UploadImage(c *gin.Context) {
 
 // UploadEditorFile handles document uploads from the rich-text editor, returns url and file ledger id.
 func UploadEditorFile(c *gin.Context) {
+	if !authorizeWorkItemEditorUpload(c) {
+		return
+	}
 	lang := lib_i18n.GetLang(c)
 	adminID := c.GetInt("adminId")
 	wsID, err := positiveParam(c, `wsId`)
@@ -110,6 +117,9 @@ func UploadEditorFile(c *gin.Context) {
 
 // UploadEditorVideo handles local video uploads from the rich-text editor, returns url and file ledger id.
 func UploadEditorVideo(c *gin.Context) {
+	if !authorizeWorkItemEditorUpload(c) {
+		return
+	}
 	lang := lib_i18n.GetLang(c)
 	adminID := c.GetInt("adminId")
 	wsID, err := positiveParam(c, `wsId`)
@@ -151,4 +161,39 @@ func UploadEditorVideo(c *gin.Context) {
 			"file_id": fileID,
 		},
 	})
+}
+
+func authorizeWorkItemEditorUpload(c *gin.Context) bool {
+	lang := lib_i18n.GetLang(c)
+	adminId, userId := c.GetInt("adminId"), c.GetInt("userId")
+	wsId, err := positiveParam(c, "wsId")
+	if err != nil {
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), "editor_upload.workspace", err)
+		return false
+	}
+	for _, typeKey := range []string{define.TypeKeyRequirement, define.TypeKeyDefect} {
+		access, err := business.LoadFieldEditAccess(business.FieldEditAccessModel{AdminId: adminId, UserId: userId, WsId: strconv.Itoa(wsId), TypeKey: typeKey})
+		if err != nil {
+			abortInternal(c, lib_i18n.Show(lang, define.MsgError), "editor_upload.access", err)
+			return false
+		}
+		if access.CanEdit {
+			return true
+		}
+		if !access.CanView {
+			continue
+		}
+		fields, err := business.ListFieldConfigs(business.ListFieldConfigsModel{AdminId: adminId, UserId: userId, WsId: strconv.Itoa(wsId), TypeKey: typeKey})
+		if err != nil {
+			abortInternal(c, lib_i18n.Show(lang, define.MsgError), "editor_upload.fields", err)
+			return false
+		}
+		for _, field := range fields.Items {
+			if field.Key == "description" && field.CanEdit {
+				return true
+			}
+		}
+	}
+	abortForbidden(c, lib_i18n.Show(lang, define.MsgForbidden))
+	return false
 }

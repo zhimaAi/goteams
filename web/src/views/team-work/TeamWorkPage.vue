@@ -1082,6 +1082,10 @@ async function saveField(item, field, value, opts = {}) {
   if (!opts.keepEditing) editing.value = null;
   const updates = { [field]: value };
   await updateRequirement(item.workspace_id, item.id, updates);
+  if (field === "status_id") {
+    await refreshLoadedPeriods();
+    return;
+  }
   const cached = optionCache.value[cacheKey(item)] || {};
   const updated = buildWorkItemListUpdate(item, updates, {
     statuses: cached.statuses,

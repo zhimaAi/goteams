@@ -191,7 +191,11 @@ func CopyProjectRole(model CopyProjectRoleModel) error {
 			logs.Error("convert copied project role id error: %s", parseErr.Error())
 			return parseErr
 		}
-		for _, permissionKey := range permissionKeys {
+		issueWorkspace, typeErr := IsIssueWorkspace(model.AdminId, workspaceId)
+		if typeErr != nil {
+			return typeErr
+		}
+		for _, permissionKey := range excludeIssueReportPermissions(permissionKeys, issueWorkspace) {
 			if _, insertErr = msql.RawExec(define.Postgres, `INSERT INTO `+define.TableRolePermissions+`
 				(admin_id, role_id, permission_key, created_at, updated_at)
 				VALUES ($1, $2, $3, $4, $4)`, tx,

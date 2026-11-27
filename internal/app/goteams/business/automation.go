@@ -764,7 +764,8 @@ func CaptureAutomationSnapshot(adminID, workspaceID, itemID int) (*AutomationWor
 func captureAutomationSnapshot(tx *sql.Tx, adminID, workspaceID, itemID int) (*AutomationWorkItemSnapshot, error) {
 	rows, err := msql.RawValues(define.Postgres, `SELECT id, workspace_id, type, title, description, parent_id, priority,
 		status_id, COALESCE(assignee_ids[1], 0) AS assignee_id, assignee_ids::text AS assignee_ids, version_id,
-		planned_start_date, planned_end_date, created_by, created_at, updated_at
+		planned_start_date, planned_end_date, created_by, created_at, updated_at,category_id,COALESCE(work_hours,0) AS work_hours,completed_work_hours,
+ GREATEST(COALESCE(work_hours,0)-completed_work_hours,0) AS remaining_work_hours,GREATEST(completed_work_hours-COALESCE(work_hours,0),0) AS overtime_work_hours,CASE WHEN work_hours>0 THEN LEAST(ROUND(completed_work_hours*100/work_hours),100) ELSE 0 END AS work_progress
 		FROM requirements WHERE admin_id=$1 AND workspace_id=$2 AND id=$3`, tx, adminID, workspaceID, itemID)
 	if err != nil || len(rows) == 0 {
 		return nil, err
@@ -776,6 +777,17 @@ func captureAutomationSnapshot(tx *sql.Tx, adminID, workspaceID, itemID int) (*A
 		"assignee": cast.ToInt(row["assignee_id"]), "version": cast.ToInt(row["version_id"]),
 		"planned_start_date": cast.ToInt64(row["planned_start_date"]), "planned_end_date": cast.ToInt64(row["planned_end_date"]),
 		"created_by": cast.ToInt(row["created_by"]), "created_at": cast.ToInt64(row["created_at"]), "updated_at": cast.ToInt64(row["updated_at"]),
+	}
+	fields["category"] = nil
+	if category := cast.ToInt(row["category_id"]); category > 0 {
+		fields["category"] = strconv.Itoa(category)
+	}
+	for key, column := range map[string]string{"estimated_work_hours": "work_hours", "completed_work_hours": "completed_work_hours", "remaining_work_hours": "remaining_work_hours", "overtime_work_hours": "overtime_work_hours", "work_progress": "work_progress"} {
+		value, e := strconv.ParseFloat(row[column], 64)
+		if e != nil {
+			return nil, e
+		}
+		fields[key] = value
 	}
 	customRows, err := msql.RawValues(define.Postgres, `SELECT f.key, f.field_type, v.value_text FROM workspace_custom_fields f
 		LEFT JOIN requirement_custom_field_values v ON v.admin_id=f.admin_id AND v.field_id=f.id AND v.requirement_id=$3
@@ -1119,6 +1131,10 @@ func automationTriggerMatches(trigger AutomationTrigger, event AutomationEvent) 
 
 // automationFields merges built-in fields and enabled custom fields of a work item.
 func automationFields(adminID, workspaceID int, itemType, lang string) ([]AutomationFieldMeta, error) {
+	return automationFieldsTx(nil, adminID, workspaceID, itemType, lang)
+}
+
+func automationFieldsTx(tx *sql.Tx, adminID, workspaceID int, itemType, lang string) ([]AutomationFieldMeta, error) {
 	labels := map[string]string{
 		"id": "workspace_field_id", "title": "workspace_field_title", "description": "workspace_field_description",
 		"status": "workspace_field_status", "version": "workspace_field_iteration", "priority": "workspace_field_priority",
@@ -1130,7 +1146,7 @@ func automationFields(adminID, workspaceID int, itemType, lang string) ([]Automa
 		"overtime_work_hours": "workspace_field_overtime_work_hours",
 	}
 	types := map[string]string{"id": "number", "title": "text", "description": "textarea", "status": "select_single", "version": "select_single", "priority": "select_single", "planned_start_date": "date", "planned_end_date": "date", "assignee": "user", "created_at": "date", "created_by": "user", "category": "select_single", "estimated_work_hours": "number", "work_progress": "number", "completed_work_hours": "number", "remaining_work_hours": "number", "overtime_work_hours": "number"}
-	configModel, err := ListFieldConfigs(ListFieldConfigsModel{
+	configModel, err := listFieldConfigsTx(tx, ListFieldConfigsModel{
 		AdminId: adminID, WsId: cast.ToString(workspaceID), TypeKey: itemType, Lang: lang,
 	})
 	if err != nil {
@@ -1157,7 +1173,7 @@ func automationFields(adminID, workspaceID int, itemType, lang string) ([]Automa
 	if !foundDescription {
 		result = append(result, AutomationFieldMeta{Key: "description", Label: lib_i18n.Show(lang, "workspace_field_description"), Type: "textarea", Editable: true})
 	}
-	customModel, err := ListCustomFields(ListCustomFieldsModel{
+	customModel, err := listCustomFieldsTx(tx, ListCustomFieldsModel{
 		AdminId: adminID, WsId: cast.ToString(workspaceID), TypeKey: itemType,
 	})
 	if err != nil {
@@ -1166,6 +1182,19 @@ func automationFields(adminID, workspaceID int, itemType, lang string) ([]Automa
 	for _, field := range customModel.Items {
 		if field.IsEnabled == 1 {
 			result = append(result, AutomationFieldMeta{Key: field.Key, Label: field.Name, Type: field.FieldType, Editable: true, Options: field.Options, MemberScope: field.MemberScope, RoleIds: field.RoleIds})
+		}
+	}
+	if itemType == define.TypeKeyRequirement {
+		rows, err := msql.RawValues(define.Postgres, `SELECT id,name FROM `+define.TableRequirementCategories+` WHERE admin_id=$1 AND workspace_id=$2 ORDER BY sort_order,id`, tx, adminID, workspaceID)
+		if err != nil {
+			return nil, err
+		}
+		for i := range result {
+			if result[i].Key == "category" {
+				for _, row := range rows {
+					result[i].Options = append(result[i].Options, CustomFieldOption{Key: row["id"], Name: row["name"]})
+				}
+			}
 		}
 	}
 	return result, nil

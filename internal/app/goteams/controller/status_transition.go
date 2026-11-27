@@ -23,16 +23,19 @@ type workItemStatusActionRequest struct {
 }
 
 type transitionWorkItemStatusRequest struct {
-	StatusAction     *workItemStatusActionRequest `json:"status_action"`
-	StatusId         int                          `json:"status_id"`
-	Comment          string                       `json:"comment"`
-	ImageFileIds     []int                        `json:"image_file_ids"`
-	AssigneeIds      *[]int                       `json:"assignee_ids"`
-	VersionId        *int                         `json:"version_id"`
-	Priority         *int                         `json:"priority"`
-	PlannedStartDate *int64                       `json:"planned_start_date"`
-	PlannedEndDate   *int64                       `json:"planned_end_date"`
-	CustomFields     transitionCustomFieldValues  `json:"custom_fields"`
+	SeverityId         *int                         `json:"severity_id"`
+	EstimatedWorkHours *float64                     `json:"estimated_work_hours"`
+	ResponsibleIds     *[]int                       `json:"responsible_ids"`
+	StatusAction       *workItemStatusActionRequest `json:"status_action"`
+	StatusId           int                          `json:"status_id"`
+	Comment            string                       `json:"comment"`
+	ImageFileIds       []int                        `json:"image_file_ids"`
+	AssigneeIds        *[]int                       `json:"assignee_ids"`
+	VersionId          *int                         `json:"version_id"`
+	Priority           *int                         `json:"priority"`
+	PlannedStartDate   *int64                       `json:"planned_start_date"`
+	PlannedEndDate     *int64                       `json:"planned_end_date"`
+	CustomFields       transitionCustomFieldValues  `json:"custom_fields"`
 }
 
 func toTransitionWorkItemStatusModel(c *gin.Context, workspaceID, workItemID int, req transitionWorkItemStatusRequest) business.TransitionWorkItemStatusModel {
@@ -45,20 +48,23 @@ func toTransitionWorkItemStatusModel(c *gin.Context, workspaceID, workItemID int
 		action = &business.WorkItemStatusActionModel{MappingId: req.StatusAction.MappingId, SourceStatusId: req.StatusAction.SourceStatusId}
 	}
 	return business.TransitionWorkItemStatusModel{
-		StatusAction:     action,
-		AdminId:          c.GetInt(`adminId`),
-		UserId:           c.GetInt(`userId`),
-		WorkspaceId:      cast.ToString(workspaceID),
-		WorkItemId:       workItemID,
-		StatusId:         req.StatusId,
-		Comment:          req.Comment,
-		ImageFileIds:     req.ImageFileIds,
-		AssigneeIds:      req.AssigneeIds,
-		VersionId:        req.VersionId,
-		Priority:         req.Priority,
-		PlannedStartDate: req.PlannedStartDate,
-		PlannedEndDate:   req.PlannedEndDate,
-		CustomFields:     business.CustomFieldValues(customFields),
+		SeverityId:         req.SeverityId,
+		EstimatedWorkHours: req.EstimatedWorkHours,
+		ResponsibleIds:     req.ResponsibleIds,
+		StatusAction:       action,
+		AdminId:            c.GetInt(`adminId`),
+		UserId:             c.GetInt(`userId`),
+		WorkspaceId:        cast.ToString(workspaceID),
+		WorkItemId:         workItemID,
+		StatusId:           req.StatusId,
+		Comment:            req.Comment,
+		ImageFileIds:       req.ImageFileIds,
+		AssigneeIds:        req.AssigneeIds,
+		VersionId:          req.VersionId,
+		Priority:           req.Priority,
+		PlannedStartDate:   req.PlannedStartDate,
+		PlannedEndDate:     req.PlannedEndDate,
+		CustomFields:       business.CustomFieldValues(customFields),
 	}
 }
 
@@ -103,13 +109,17 @@ func abortStatusTransitionError(c *gin.Context, lang string, err error) {
 		abortBadRequest(c, lib_i18n.Show(lang, define.MsgStatusActionInvalid), "status_action.workspace", err)
 	case errors.Is(err, business.ErrRequirementNotFound), errors.Is(err, business.ErrPlanningNotFound), errors.Is(err, business.ErrStatusActionNotFound):
 		abortNotFound(c, lib_i18n.Show(lang, define.MsgRequirementNotFound))
-	case errors.Is(err, business.ErrStatusTransitionForbidden):
+	case errors.Is(err, business.ErrStatusTransitionForbidden), errors.Is(err, business.ErrFieldEditForbidden):
 		abortForbidden(c, lib_i18n.Show(lang, define.MsgForbidden))
 	case errors.Is(err, business.ErrStatusTransitionFieldRequired):
 		abortBadRequest(c, lib_i18n.Show(lang, define.MsgStatusTransitionFieldRequired), `status_transition.required`, err)
 	case errors.Is(err, business.ErrStatusTransitionFormInvalid), errors.Is(err, business.ErrCustomFieldValueInvalid),
 		errors.Is(err, business.ErrRequirementAssigneesInvalid):
 		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `status_transition.invalid`, err)
+	case errors.Is(err, business.ErrDefectResponsibleInvalid), errors.Is(err, validate.ErrRequirementWorkHoursInvalid):
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), "status_transition.fields", err)
+	case errors.Is(err, business.ErrSeverityNotFound):
+		abortBadRequest(c, lib_i18n.Show(lang, define.MsgSeverityNotFound), "status_transition.severity", err)
 	case errors.Is(err, business.ErrCommentAttachmentsInvalid):
 		abortBadRequest(c, lib_i18n.Show(lang, define.MsgParamInvalid), `status_transition.comment_attachments`, err)
 	case errors.Is(err, business.ErrStatusNotFound):

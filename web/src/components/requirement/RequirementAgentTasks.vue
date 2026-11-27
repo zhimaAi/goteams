@@ -189,16 +189,16 @@
                       <DownOutlined v-else />
                     </button>
                   </div>
-                  <div
+                  <ConversationMarkdown
                     v-show="
                       !isCollapsed(messageKey(conversation, round, 'user'))
                     "
                     class="message-card-body message-markdown"
                     @click="onMarkdownClick"
-                    v-html="
-                      renderConversationMarkdown(round.user_message, documents)
-                    "
-                  ></div>
+                    :content="round.user_message"
+                    :documents="documents"
+                    @keydown.enter="onMarkdownClick"
+                  />
                 </article>
 
                 <article
@@ -278,15 +278,15 @@
                       :input-tokens="Number(round.usage?.input_tokens || 0)"
                       :output-tokens="Number(round.usage?.output_tokens || 0)"
                     />
-                    <div
+                    <ConversationMarkdown
                       v-for="aiMessage in round.assistant_messages || []"
                       :key="`${round.session_uuid}:${aiMessage.sequence}`"
                       class="message-card-body message-markdown"
                       @click="onMarkdownClick"
-                      v-html="
-                        renderConversationMarkdown(aiMessage.content, documents)
-                      "
-                    ></div>
+                      :content="aiMessage.content"
+                      :documents="documents"
+                      @keydown.enter="onMarkdownClick"
+                    />
                     <p v-if="round.error_summary" class="conversation-error">
                       {{ round.error_summary }}
                     </p>
@@ -337,10 +337,8 @@ import {
   getRequirementAgentTaskDetail,
   listRequirementAgentTasks,
 } from "@/api/pipeline.js";
-import {
-  documentIdFromEvent,
-  renderConversationMarkdown,
-} from "./conversationMarkdown.js";
+import { documentIdFromEvent } from "./conversationMarkdown.js";
+import ConversationMarkdown from "./ConversationMarkdown.vue";
 import ExecutionProcessTimeline from "./ExecutionProcessTimeline.vue";
 import TaskDocumentsDrawer from "@/components/pipeline/TaskDocumentsDrawer.vue";
 import TaskDocumentsEntry from "@/components/pipeline/TaskDocumentsEntry.vue";
@@ -361,7 +359,7 @@ const activeExecutorKey = ref(null);
 const activeTask = ref(null); // AgentTaskSummary, includes started_at etc.
 const detailSteps = ref([]);
 const conversations = ref([]);
-// 该任务的产出文档索引，用于把沟通记录里的本地路径渲染成可点链接
+// Only explicit links and images are resolved against this task’s document index.
 const documents = ref([]);
 const documentsDrawerOpen = ref(false);
 const documentsFocusId = ref(null);

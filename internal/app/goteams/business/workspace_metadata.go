@@ -37,6 +37,7 @@ type WorkspaceMetadataPriorityModel struct {
 
 // WorkspaceMetadataFieldConfigModel holds built-in field config in the metadata.
 type WorkspaceMetadataFieldConfigModel struct {
+	CanEdit   bool
 	Key       string
 	Label     string
 	Enabled   int
@@ -54,6 +55,7 @@ type WorkspaceMetadataCustomFieldOptionModel struct {
 
 // WorkspaceMetadataCustomFieldModel holds custom field info in the metadata.
 type WorkspaceMetadataCustomFieldModel struct {
+	CanEdit     bool
 	Id          int
 	Key         string
 	Name        string
@@ -78,8 +80,17 @@ type WorkspaceMetadataGroupModel struct {
 	CustomFields  []WorkspaceMetadataCustomFieldModel
 }
 
+// WorkspaceMetadataSLAStageModel 仅公开筛选所需的阶段标识与名称。
+type WorkspaceMetadataSLAStageModel struct {
+	Id   int
+	Name string
+}
+
 // WorkspaceMetadataSettingsModel holds the workflow initial/terminal status config in the metadata.
 type WorkspaceMetadataSettingsModel struct {
+	RequirementTimeEnabled        bool
+	RequirementStartStatusIds     []int
+	RequirementEndStatusIds       []int
 	RequirementInitialStatusId    int
 	DefectInitialStatusId         int
 	PlanningInitialStatusId       int
@@ -128,6 +139,7 @@ type WorkspaceMetadataCustomFieldMemberModel struct {
 
 // WorkspaceMetadataModel describes the workspace metadata use case.
 type WorkspaceMetadataModel struct {
+	UserId              int
 	AdminId             int
 	WorkspaceId         string
 	Lang                string
@@ -141,6 +153,7 @@ type WorkspaceMetadataModel struct {
 	CustomFieldMembers  []WorkspaceMetadataCustomFieldMemberModel
 	Versions            []VersionModel
 	Permissions         []string
+	SLAStages           []WorkspaceMetadataSLAStageModel
 	EnabledApplications []string
 }
 
@@ -153,6 +166,7 @@ func GetWorkspaceMetadata(model WorkspaceMetadataModel) (WorkspaceMetadataModel,
 	model.CustomFieldMembers = []WorkspaceMetadataCustomFieldMemberModel{}
 	model.Versions = []VersionModel{}
 	model.Permissions = []string{}
+	model.SLAStages = []WorkspaceMetadataSLAStageModel{}
 
 	statusM := msql.Model(define.TableWorkItemStatuses, define.Postgres)
 	statusRows, err := statusM.Where2([][]string{
@@ -226,11 +240,19 @@ func GetWorkspaceMetadata(model WorkspaceMetadataModel) (WorkspaceMetadataModel,
 	}
 	model.Defect.Severities = severities.Items
 
+	accessByType := map[string]FieldEditAccessModel{}
+	for _, typeKey := range []string{define.TypeKeyRequirement, define.TypeKeyDefect, define.TypeKeyPlanning} {
+		access, err := LoadFieldEditAccess(FieldEditAccessModel{AdminId: model.AdminId, UserId: model.UserId, WsId: model.WorkspaceId, TypeKey: typeKey})
+		if err != nil {
+			return WorkspaceMetadataModel{}, err
+		}
+		accessByType[typeKey] = access
+	}
 	fieldM := msql.Model(define.TableWorkItemFieldConfigs, define.Postgres)
 	fieldRows, err := fieldM.Where2([][]string{
 		{`admin_id`, cast.ToString(model.AdminId)},
 		{`workspace_id`, model.WorkspaceId},
-	}).Field(`type_key, field_key, is_enabled, is_editable, is_locked, sort_order`).Order(`type_key asc, sort_order asc, id asc`).Select()
+	}).Field(`type_key, field_key, is_enabled, is_editable, is_locked, sort_order,edit_scope,array_to_json(edit_role_ids)::text AS edit_role_ids`).Order(`type_key asc, sort_order asc, id asc`).Select()
 	if err != nil {
 		logs.Error("sql:%s, err:%s", fieldM.GetLastSql(), err.Error())
 		return WorkspaceMetadataModel{}, err
@@ -256,8 +278,13 @@ func GetWorkspaceMetadata(model WorkspaceMetadataModel) (WorkspaceMetadataModel,
 		if err != nil {
 			return WorkspaceMetadataModel{}, err
 		}
+		policy, err := fieldEditPolicy(row["edit_scope"], row["edit_role_ids"])
+		if err != nil {
+			return WorkspaceMetadataModel{}, err
+		}
 		group.FieldConfigs = append(group.FieldConfigs, WorkspaceMetadataFieldConfigModel{
-			Key: row[`field_key`], Label: fieldLabel(model.Lang, row[`type_key`], row[`field_key`]), Enabled: enabled, Editable: editable, Locked: locked, SortOrder: sortOrder,
+			CanEdit: accessByType[row["type_key"]].canEditField(row["field_key"], policy, editable == 1 || row["field_key"] == "title" || row["field_key"] == "status"),
+			Key:     row[`field_key`], Label: fieldLabel(model.Lang, row[`type_key`], row[`field_key`]), Enabled: enabled, Editable: editable, Locked: locked, SortOrder: sortOrder,
 		})
 	}
 
@@ -265,7 +292,7 @@ func GetWorkspaceMetadata(model WorkspaceMetadataModel) (WorkspaceMetadataModel,
 	customFieldRows, err := customFieldM.Where2([][]string{
 		{`admin_id`, cast.ToString(model.AdminId)},
 		{`workspace_id`, model.WorkspaceId},
-	}).Field(`id, type_key, key, name, field_type, is_required, sort_order, is_enabled, config_json`).Order(`type_key asc, sort_order asc, id asc`).Select()
+	}).Field(`id, type_key, key, name, field_type, is_required, sort_order, is_enabled, config_json,edit_scope,array_to_json(edit_role_ids)::text AS edit_role_ids`).Order(`type_key asc, sort_order asc, id asc`).Select()
 	if err != nil {
 		logs.Error("sql:%s, err:%s", customFieldM.GetLastSql(), err.Error())
 		return WorkspaceMetadataModel{}, err
@@ -280,6 +307,11 @@ func GetWorkspaceMetadata(model WorkspaceMetadataModel) (WorkspaceMetadataModel,
 		if err != nil {
 			return WorkspaceMetadataModel{}, err
 		}
+		policy, err := fieldEditPolicy(row["edit_scope"], row["edit_role_ids"])
+		if err != nil {
+			return WorkspaceMetadataModel{}, err
+		}
+		field.CanEdit = accessByType[row["type_key"]].canEditField("custom:"+row["id"], policy, true)
 		group.CustomFields = append(group.CustomFields, field)
 		if customFieldIsMember(field.FieldType) {
 			hasMemberCustomField = true
@@ -291,6 +323,7 @@ func GetWorkspaceMetadata(model WorkspaceMetadataModel) (WorkspaceMetadataModel,
 		return WorkspaceMetadataModel{}, err
 	}
 	model.Settings = WorkspaceMetadataSettingsModel{
+		RequirementTimeEnabled: settings.RequirementTimeEnabled, RequirementStartStatusIds: settings.RequirementStartStatusIds, RequirementEndStatusIds: settings.RequirementEndStatusIds,
 		RequirementInitialStatusId:    settings.RequirementInitialStatusId,
 		DefectInitialStatusId:         settings.DefectInitialStatusId,
 		PlanningInitialStatusId:       settings.PlanningInitialStatusId,
@@ -320,6 +353,13 @@ func GetWorkspaceMetadata(model WorkspaceMetadataModel) (WorkspaceMetadataModel,
 			return WorkspaceMetadataModel{}, err
 		}
 		model.Requirement.StatusActions = &config
+		stages, err := listSLADefinitionsTx(nil, model.AdminId, workspace.Id, true)
+		if err != nil {
+			return WorkspaceMetadataModel{}, err
+		}
+		for _, stage := range stages {
+			model.SLAStages = append(model.SLAStages, WorkspaceMetadataSLAStageModel{Id: stage.Id, Name: stage.Name})
+		}
 	}
 
 	members, err := ListMembersByWorkspace(ListWorkspaceMembersModel{AdminId: model.AdminId, WorkspaceId: model.WorkspaceId})

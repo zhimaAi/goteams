@@ -237,9 +237,18 @@ export function useWorkItemDetail(props, emit) {
     descriptionEditorRef.value?.cancelEdit?.();
     return true;
   }
-  function requestClose() {
-    if (!confirmLeaveEditing()) return;
-    emit("close");
+  let closingDetail = false;
+  async function requestClose() {
+    if (closingDetail) return;
+    closingDetail = true;
+    const context = detailLoadContext();
+    try {
+      if (!confirmLeaveEditing()) return;
+      if (!(await saveTitle()) || !context.isCurrent()) return;
+      emit("close");
+    } finally {
+      closingDetail = false;
+    }
   }
   function onBeforeUnload(event) {
     if (!isDescriptionDirty.value) return;
@@ -261,9 +270,8 @@ export function useWorkItemDetail(props, emit) {
     if (descriptionEditing.value) {
       e.preventDefault();
       e.stopPropagation();
-      if (!confirmLeaveEditing()) return;
     }
-    emit("close");
+    void requestClose();
   }
   function onWindowResize() {
     viewportWidth.value = window.innerWidth;
@@ -386,6 +394,7 @@ export function useWorkItemDetail(props, emit) {
   });
   const propertiesCollapsed = ref(false);
   const editingTitle = ref(false);
+  const savingTitle = ref(false);
   const editingParent = ref(false);
   const editingProperty = ref("");
   const workLogsRef = ref(null);
@@ -657,7 +666,11 @@ export function useWorkItemDetail(props, emit) {
   }
   function fieldEnabled(type, key) {
     const config = fieldConfig(type, key);
-    if (key === "severity_id" && (type !== "defect" || !config)) return false;
+    if (
+      ["severity_id", "responsible_ids"].includes(key) &&
+      (type !== "defect" || !config)
+    )
+      return false;
     if (workHourFieldKeys.has(key) && !config) return false;
     if (config && Number(config.enabled) !== 1) return false;
     const setting = displaySettings.value[type];
@@ -708,11 +721,13 @@ export function useWorkItemDetail(props, emit) {
   }
 
   function fieldEditable(type, key) {
-    const config = fieldConfig(type, key);
-    return (
-      canEdit.value &&
-      (key === "status" || !config || Number(config.editable) === 1)
-    );
+    const customId = String(key).replace(/^custom[:_]/, "");
+    const config = /^custom[:_]/.test(key)
+      ? (customFields.value[type] || []).find(
+          (field) => String(field.id) === customId,
+        )
+      : fieldConfig(type, key);
+    return config?.can_edit === true;
   }
   // Plain-text display of custom fields in the detail panel (shown when not in edit mode).
   function customDisplay(field) {
@@ -739,6 +754,7 @@ export function useWorkItemDetail(props, emit) {
       status_change: "requirement_historyStatusChanged",
       // 邀填工单被提交人撤回时的状态落库，变更类型单独显示「用户撤回」
       issue_recall: "requirement_history_issue_recall",
+      issue_urge: "issue_urge_content",
       field_update: "requirement_historyFieldUpdated",
       assignee_change: "requirement_historyAssigneeChanged",
       restore: "requirement_history_restored",
@@ -766,6 +782,7 @@ export function useWorkItemDetail(props, emit) {
   }
 
   function historyFieldText(item) {
+    if (item.action === "issue_urge") return t("issue_urge_records");
     const keys = {
       title: "workspace_workItemTitle",
       description: "requirement_description",
@@ -773,6 +790,7 @@ export function useWorkItemDetail(props, emit) {
       status_id: "workspace_status",
       priority: "workspace_priority",
       severity_id: "workspace_severity",
+      responsible_ids: "workspace_field_responsible",
       category_id: "workspace_field_category",
       assignee: "workspace_assignee",
       version_id: "workspace_version",
@@ -799,6 +817,8 @@ export function useWorkItemDetail(props, emit) {
   }
 
   function historyValueText(item, value) {
+    if (item.action === "issue_urge")
+      return value ? t("issue_urge_content") : "-";
     if (value === undefined || value === null || value === "") return "-";
     const wrappedKey = /^\$\{(.+)\}$/.exec(String(value))?.[1];
     const storedStatusKeys = {
@@ -837,7 +857,7 @@ export function useWorkItemDetail(props, emit) {
       );
       return option ? displayName(option.name || option.label) : value;
     }
-    if (field === "assignee")
+    if (field === "assignee" || field === "responsible_ids")
       return String(value)
         .split(",")
         .map((s) => s.trim())
@@ -915,6 +935,13 @@ export function useWorkItemDetail(props, emit) {
       name: surface === "issue" ? "IssueDetail" : "WorkItemDetail",
       params: { wsId: props.wsId, id: detail.value.parent_id },
     });
+    window.open(target.href, "_blank", "noopener,noreferrer");
+  }
+
+  function openRelatedInNewWindow(id) {
+    const target = router.resolve(
+      workItemRoute(surface, "detail", props.wsId, id),
+    );
     window.open(target.href, "_blank", "noopener,noreferrer");
   }
 
@@ -1221,6 +1248,7 @@ export function useWorkItemDetail(props, emit) {
     async ([open, wsId, id], _, onCleanup) => {
       detailLoadSequence += 1;
       const context = detailLoadContext();
+      savingTitle.value = false;
       onCleanup(() => {
         detailLoadSequence += 1;
       });
@@ -1455,14 +1483,14 @@ export function useWorkItemDetail(props, emit) {
     });
     emit("updated", detailUpdateEvent(changedFields));
   }
-  async function saveAssignees(value) {
+  async function saveAssignees(value, field = "assignee_ids") {
     // Save on every change triggered by AssigneeSelect. Do NOT clear
     // editingProperty here, otherwise the component unmounts and the
     // dropdown disappears mid-save. The dropdown stays open until the
     // user clicks outside (handled by @cancel). Recent-contact ordering
     // is deferred to dropdown close inside AssigneeSelect, so the list
     // order does not shift during the current open session.
-    await updateField("assignee_ids", value);
+    await updateField(field, value);
   }
   async function updateParent(item) {
     const context = detailLoadContext();
@@ -1473,19 +1501,40 @@ export function useWorkItemDetail(props, emit) {
       editingParent.value = false;
     }
   }
-  async function saveTitle() {
-    editingTitle.value = false;
-    // 正文编辑会话内，标题由底部「保存」统一提交
-    if (descriptionEditing.value) return;
+  let titleSave = null;
+  function saveTitle() {
+    if (titleSave?.context.isCurrent()) return titleSave.promise;
+    if (!editingTitle.value) return Promise.resolve(true);
+    // Title changes in a description edit are submitted by its Save action.
     const title = titleDraft.value.trim();
-    if (title && title !== detail.value?.title) {
-      // 先落盘未保存内容，避免 350ms 定时器在 markPosted 之后又把记录写回未提交
-      const context = detailLoadContext();
-      await draft.flush();
-      if (await updateField("title", title, context)) {
-        if (context.isCurrent()) await draft.markPosted();
-      }
+    if (descriptionEditing.value || !title || title === detail.value?.title) {
+      editingTitle.value = false;
+      return Promise.resolve(true);
     }
+    const context = detailLoadContext();
+    const save = { context, promise: null };
+    titleSave = save;
+    savingTitle.value = true;
+    save.promise = (async () => {
+      try {
+        // Flush before markPosted so a pending draft timer cannot undo it.
+        await draft.flush();
+        if (!(await updateField("title", title, context))) return false;
+        if (!context.isCurrent()) return false;
+        await draft.markPosted();
+        if (context.isCurrent()) editingTitle.value = false;
+        return true;
+      } catch {
+        // The request interceptor owns the error message; keep the input retryable.
+        return false;
+      } finally {
+        if (titleSave === save) {
+          titleSave = null;
+          savingTitle.value = false;
+        }
+      }
+    })();
+    return save.promise;
   }
 
   // 仅在标题或正文编辑态中自动保存；进入编辑态本身不算用户输入，
@@ -1502,9 +1551,12 @@ export function useWorkItemDetail(props, emit) {
 
   function applyDraftRestore(payload) {
     // 只覆盖标题、正文和编辑器模式，不请求后端；随后由 watch 自动保存到当前草稿
-    titleDraft.value = payload.title;
-    descriptionDraft.value = payload.html;
-    if (payload.mode) descriptionModeDraft.value = payload.mode;
+    if (fieldEditable(detail.value?.type, "title"))
+      titleDraft.value = payload.title;
+    if (fieldEditable(detail.value?.type, "description")) {
+      descriptionDraft.value = payload.html;
+      if (payload.mode) descriptionModeDraft.value = payload.mode;
+    }
     draftRestoreRevision.value += 1;
   }
 
@@ -1528,7 +1580,11 @@ export function useWorkItemDetail(props, emit) {
     try {
       // 一次请求提交发生变化的标题、正文和描述模式
       const updates = {};
-      if (nextTitle !== detail.value?.title) updates.title = nextTitle;
+      if (
+        fieldEditable(detail.value?.type, "title") &&
+        nextTitle !== detail.value?.title
+      )
+        updates.title = nextTitle;
       if (descriptionDraft.value !== detail.value?.description)
         updates.description = descriptionDraft.value;
       if (descriptionModeDraft.value !== detail.value?.description_mode)
@@ -1600,7 +1656,7 @@ export function useWorkItemDetail(props, emit) {
   }
 
   async function saveCustomField(field) {
-    if (!canEdit.value) return false;
+    if (!fieldEditable(detail.value?.type, `custom:${field.id}`)) return false;
     if (!isValidPhoneFieldValue(field, customValues.value[field.id])) {
       message.warning(t("settings_fieldPhoneInvalid"));
       return false;
@@ -1653,6 +1709,7 @@ export function useWorkItemDetail(props, emit) {
     detailReloadKey,
     propertiesCollapsed,
     editingTitle,
+    savingTitle,
     editingParent,
     editingProperty,
     workLogsRef,
@@ -1730,6 +1787,7 @@ export function useWorkItemDetail(props, emit) {
     openFullscreenEditor,
     openInNewWindow,
     openParentInNewWindow,
+    openRelatedInNewWindow,
     handleDetailAction,
     closeActionModal,
     handleActionSuccess,

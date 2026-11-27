@@ -298,6 +298,8 @@ const visibleRoleOptions = computed(() => [
 // 其中 ID 和状态还不吃链接传参
 const LOCKED_DISPLAY_KEYS = new Set([
   "id",
+  "started_at",
+  "ended_at",
   "created_at",
   "created_by",
   "work_progress",

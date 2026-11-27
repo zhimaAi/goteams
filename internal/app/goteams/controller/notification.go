@@ -80,12 +80,15 @@ func translateSLAContent(content, lang string) string {
 
 // ListNotifications returns the current user's cross-workspace notifications.
 func ListNotifications(c *gin.Context) {
-	page, size, unreadOnly, err := parseNotificationQuery(c)
+	query, err := parseNotificationQuery(c)
 	if err != nil {
 		abortBadRequest(c, lib_i18n.Show(lib_i18n.GetLang(c), define.MsgParamInvalid), `notification.list.query`, err)
 		return
 	}
-	model, err := business.ListNotifications(c.GetInt(`adminId`), c.GetInt(`userId`), unreadOnly, page, size)
+	model, err := business.ListNotifications(business.ListNotificationsModel{
+		AdminID: c.GetInt(`adminId`), UserID: c.GetInt(`userId`),
+		Page: query.Page, Size: query.Size, UnreadOnly: query.UnreadOnly, Category: query.Category,
+	})
 	if err != nil {
 		abortInternal(c, lib_i18n.Show(lib_i18n.GetLang(c), define.MsgError), `notification.list`, err)
 		return
@@ -128,24 +131,38 @@ func MarkAllNotificationsRead(c *gin.Context) {
 	c.JSON(http.StatusOK, define.Response{Code: define.CodeSuccess, Message: lib_i18n.Show(lib_i18n.GetLang(c), define.MsgSuccess)})
 }
 
-func parseNotificationQuery(c *gin.Context) (int, int, bool, error) {
-	page, size := 1, 20
+type listNotificationsQuery struct {
+	Page       int
+	Size       int
+	UnreadOnly bool
+	Category   string
+}
+
+func parseNotificationQuery(c *gin.Context) (listNotificationsQuery, error) {
+	query := listNotificationsQuery{Page: 1, Size: 20, Category: `all`}
 	var err error
 	if value := c.Query(`page`); value != `` {
-		page, err = strconv.Atoi(value)
-		if err != nil || page < 1 {
-			return 0, 0, false, errors.New(`invalid page`)
+		query.Page, err = strconv.Atoi(value)
+		if err != nil || query.Page < 1 {
+			return listNotificationsQuery{}, errors.New(`invalid page`)
 		}
 	}
 	if value := c.Query(`size`); value != `` {
-		size, err = strconv.Atoi(value)
-		if err != nil || size < 1 || size > 100 {
-			return 0, 0, false, errors.New(`invalid size`)
+		query.Size, err = strconv.Atoi(value)
+		if err != nil || query.Size < 1 || query.Size > 100 {
+			return listNotificationsQuery{}, errors.New(`invalid size`)
 		}
 	}
 	unread := c.Query(`unread_only`)
 	if unread != `` && unread != `0` && unread != `1` {
-		return 0, 0, false, errors.New(`invalid unread_only`)
+		return listNotificationsQuery{}, errors.New(`invalid unread_only`)
 	}
-	return page, size, unread == `1`, nil
+	query.UnreadOnly = unread == `1`
+	if category := c.Query(`category`); category != `` {
+		query.Category = category
+	}
+	if err := business.ValidateNotificationCategory(query.Category); err != nil {
+		return listNotificationsQuery{}, err
+	}
+	return query, nil
 }

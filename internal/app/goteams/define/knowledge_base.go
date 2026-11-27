@@ -46,12 +46,14 @@ const (
 // Workspace application key constants. Planning/iteration/defect are enabled by default;
 // dashboard is a coming-soon placeholder whose switch is disabled in the UI.
 const (
-	AppKeyKnowledgeBase = `knowledge_base`
-	AppKeyGantt         = `gantt`
-	AppKeyPlanning      = `planning`
-	AppKeyIteration     = `iteration`
-	AppKeyDashboard     = `dashboard`
-	AppKeyDefect        = `defect`
+	AppKeyKnowledgeBase   = `knowledge_base`
+	AppKeyGantt           = `gantt`
+	AppKeyPlanning        = `planning`
+	AppKeyIteration       = `iteration`
+	AppKeyDashboard       = `dashboard`
+	AppKeyIssueStatistics = `issue_statistics`
+	AppKeyReport          = `report`
+	AppKeyDefect          = `defect`
 )
 
 // Knowledge activity action constants.

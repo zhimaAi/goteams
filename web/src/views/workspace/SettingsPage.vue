@@ -24,7 +24,19 @@
     />
     <TypeSubTabs v-else-if="activeSection === 'defect'" type-key="defect" />
     <TypeSubTabs v-else-if="activeSection === 'planning'" type-key="planning" />
+    <WarningNotificationTab
+      v-else-if="activeSection === 'warning-notifications'"
+      :ws-id="wsId"
+    />
+    <SatisfactionTab
+      v-else-if="activeSection === 'satisfaction'"
+      :ws-id="wsId"
+    />
     <SLATab v-else-if="activeSection === 'sla'" :ws-id="wsId" />
+    <AutoAssignmentTab
+      v-else-if="activeSection === 'auto-assignment'"
+      :ws-id="wsId"
+    />
     <AutomationTab v-else-if="activeSection === 'automation'" :ws-id="wsId" />
   </WorkspaceSettingsFrame>
 </template>
@@ -34,7 +46,10 @@ import ProjectInfoTab from "./settings/ProjectInfoTab.vue";
 import ProjectMembersTab from "./settings/ProjectMembersTab.vue";
 import ProjectRolesTab from "./settings/ProjectRolesTab.vue";
 import TypeSubTabs from "./settings/TypeSubTabs.vue";
+import WarningNotificationTab from "./settings/WarningNotificationTab.vue";
+import SatisfactionTab from "./settings/SatisfactionTab.vue";
 import SLATab from "./settings/SLATab.vue";
+import AutoAssignmentTab from "./settings/AutoAssignmentTab.vue";
 import AutomationTab from "./settings/AutomationTab.vue";
 import ApplicationMarketPanel from "./settings/ApplicationMarketPanel.vue";
 </script>

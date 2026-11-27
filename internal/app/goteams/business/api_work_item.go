@@ -147,45 +147,11 @@ func GetApiWorkItem(adminId, workspaceId, itemId, userId int) (ApiWorkItemModel,
 // UpdateApiWorkItem 把类型化的开放 API 入参翻译成 UpdateRequirement 需要的列集合。
 // map[string]any 只允许存在于这一层，controller 不见 Map。
 func UpdateApiWorkItem(model ApiWorkItemUpdateModel) error {
-	updates := make(map[string]any, 11)
-	if model.Title != nil {
-		updates[`title`] = *model.Title
-	}
-	if model.Description != nil {
-		updates[`description`] = *model.Description
-	}
-	if model.DescriptionMode != nil {
-		updates[`description_mode`] = *model.DescriptionMode
-	}
-	if model.StatusId != nil {
-		updates[`status_id`] = *model.StatusId
-	}
-	if model.Priority != nil {
-		updates[`priority`] = *model.Priority
-	}
-	if model.ParentId != nil {
-		updates[`parent_id`] = *model.ParentId
-	}
-	if model.VersionId != nil {
-		updates[`version_id`] = *model.VersionId
-	}
-	if model.AssigneeIds != nil {
-		updates[`assignee_ids`] = *model.AssigneeIds
-	}
-	if model.PlannedStartDate != nil {
-		updates[`planned_start_date`] = *model.PlannedStartDate
-	}
-	if model.PlannedEndDate != nil {
-		updates[`planned_end_date`] = *model.PlannedEndDate
-	}
-	if model.EstimatedWorkHours != nil {
-		updates[`work_hours`] = *model.EstimatedWorkHours
-	}
-	if len(updates) == 0 && len(model.CustomFields) == 0 {
+	update := UpdateRequirementModel{AdminId: model.AdminId, UserId: model.UserId, WorkspaceId: model.WorkspaceId, ItemId: model.ItemId, Title: model.Title, Description: model.Description, DescriptionMode: model.DescriptionMode, StatusId: model.StatusId, Priority: model.Priority, ParentId: model.ParentId, VersionId: model.VersionId, AssigneeIds: model.AssigneeIds, PlannedStartDate: model.PlannedStartDate, PlannedEndDate: model.PlannedEndDate, EstimatedWorkHours: model.EstimatedWorkHours, CustomFields: model.CustomFields, ImageFileIds: model.ImageFileIds}
+	if len(update.columns()) == 0 && len(update.CustomFields) == 0 {
 		return ErrApiWorkItemNoFields
 	}
-	return UpdateRequirement(model.AdminId, cast.ToString(model.WorkspaceId), cast.ToString(model.ItemId),
-		updates, model.CustomFields, model.UserId, model.ImageFileIds)
+	return UpdateRequirement(update)
 }
 
 // apiWorkItemFromRow 把详情行转成开放 API 模型；数字列解析失败即整行失败，不静默给零值。

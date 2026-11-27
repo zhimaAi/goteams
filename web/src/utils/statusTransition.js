@@ -1,5 +1,9 @@
 // Parses status-transition settings and resolves configured field labels.
-import { DEFAULT_STATUS_TRANSITION_FORM } from "@/constants/statusTransition";
+import {
+  DEFAULT_STATUS_TRANSITION_FORM,
+  DEFECT_STATUS_TRANSITION_KEYS,
+  STATUS_TRANSITION_BUILTIN_KEYS,
+} from "@/constants/statusTransition";
 import { customFieldValues } from "@/utils/customField";
 import { buildWorkItemListUpdate } from "@/utils/workItemList";
 
@@ -30,6 +34,18 @@ export function statusTransitionForm(
                 ...item,
               })),
         };
+  form.custom_enabled = Number(raw?.custom_enabled) === 1 ? 1 : 0;
+  form.status_rules = Array.isArray(raw?.status_rules)
+    ? raw.status_rules.map((rule) => ({
+        status_id: Number(rule.status_id),
+        fields: Array.isArray(rule.fields)
+          ? rule.fields.map((field) => ({
+              key: field.key,
+              required: Number(field.required) ? 1 : 0,
+            }))
+          : [],
+      }))
+    : [];
   const activeCustomIds = Array.isArray(customFields)
     ? new Set(
         customFields
@@ -42,14 +58,72 @@ export function statusTransitionForm(
         fieldConfigs.map((item) => [item.key, Number(item.enabled) === 1]),
       )
     : null;
-  form.fields = form.fields.filter((item) => {
+  const available = (item) => {
+    if (
+      typeKey !== "defect" &&
+      DEFECT_STATUS_TRANSITION_KEYS.includes(item.key)
+    )
+      return false;
     const customId = statusTransitionCustomFieldId(item.key);
     if (customId)
       return activeCustomIds === null || activeCustomIds.has(customId);
     if (item.key === "comment" || builtinEnabled === null) return true;
     return !builtinEnabled.has(item.key) || builtinEnabled.get(item.key);
-  });
+  };
+  form.fields = form.fields.filter(available);
+  form.status_rules = form.status_rules.map((rule) => ({
+    ...rule,
+    fields: rule.fields.filter(available),
+  }));
   return form;
+}
+
+// An explicit empty rule overrides the defaults as well.
+export function statusTransitionFields(form, targetStatusId) {
+  if (form.enabled !== 1) return [];
+  const rule =
+    form.custom_enabled === 1
+      ? form.status_rules?.find(
+          (item) => item.status_id === Number(targetStatusId),
+        )
+      : null;
+  return rule ? rule.fields : form.fields;
+}
+
+export function statusTransitionFieldOptions(
+  typeKey,
+  fieldConfigs,
+  customFields,
+  t,
+) {
+  const enabledKeys = new Set(
+    fieldConfigs
+      .filter((item) => Number(item.enabled) === 1)
+      .map((item) => item.key),
+  );
+  const options = STATUS_TRANSITION_BUILTIN_KEYS.filter(
+    (key) =>
+      enabledKeys.has(key) &&
+      (typeKey === "defect" || !DEFECT_STATUS_TRANSITION_KEYS.includes(key)),
+  ).map((key) => ({
+    key,
+    label: statusTransitionFieldLabel(key, t, customFields),
+    builtin: true,
+  }));
+  options.push({
+    key: "comment",
+    label: statusTransitionFieldLabel("comment", t),
+    builtin: false,
+  });
+  for (const field of customFields) {
+    if (Number(field.is_enabled) === 1)
+      options.push({
+        key: `custom_${field.id}`,
+        label: field.name,
+        builtin: false,
+      });
+  }
+  return options;
 }
 
 // Builds a complete list projection after a successful advanced transition.
@@ -74,6 +148,41 @@ export function buildStatusTransitionListUpdate(
   if (configuredKeys.has("priority") && Object.hasOwn(payload, "priority"))
     updates.priority = payload.priority;
 
+  if (
+    configuredKeys.has("severity_id") &&
+    Object.hasOwn(payload, "severity_id")
+  ) {
+    updates.severity_id = payload.severity_id;
+    const severity = (typeMeta.severities || []).find(
+      (item) => Number(item.id) === Number(payload.severity_id),
+    );
+    updates.severity_name =
+      severity?.label ||
+      severity?.name ||
+      (payload.severity_id ? String(payload.severity_id) : "");
+    updates.severity_color = severity?.color || "";
+  }
+  if (
+    configuredKeys.has("estimated_work_hours") &&
+    Object.hasOwn(payload, "estimated_work_hours")
+  )
+    updates.estimated_work_hours = payload.estimated_work_hours;
+  if (
+    configuredKeys.has("responsible_ids") &&
+    Object.hasOwn(payload, "responsible_ids")
+  ) {
+    updates.responsible_ids = payload.responsible_ids;
+    updates.responsible_names = payload.responsible_ids.map(
+      (id) =>
+        (metadata?.members || []).find(
+          (member) => Number(member.user_id) === Number(id),
+        )?.user_name ||
+        workItem.responsible_names?.[
+          workItem.responsible_ids?.map(Number).indexOf(Number(id))
+        ] ||
+        "",
+    );
+  }
   const startChanged =
     configuredKeys.has("planned_start_date") &&
     Object.hasOwn(payload, "planned_start_date");
@@ -113,6 +222,10 @@ export function statusTransitionCustomFieldId(key) {
 }
 
 export function statusTransitionFieldLabel(key, t, customFields = []) {
+  if (key === "severity_id") return t("workspace_severity");
+  if (key === "estimated_work_hours")
+    return t("requirement_estimatedWorkHours");
+  if (key === "responsible_ids") return t("workspace_field_responsible");
   if (key === "comment") return t("requirement_comment");
   if (key === "assignee") return t("workspace_field_assignee");
   if (key === "version") return t("workspace_field_iteration");

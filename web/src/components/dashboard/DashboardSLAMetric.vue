@@ -10,34 +10,17 @@
       <span v-else-if="description" class="dashboard-sla-metric__comparison">
         {{ description }}
       </span>
-      <svg
-        v-if="showComparison && trendPoints.length"
-        viewBox="0 0 140 38"
-        preserveAspectRatio="xMaxYMid meet"
-        role="img"
-        :aria-label="$t('dashboard_sla_sparkline')"
-      >
-        <polyline
-          v-if="trendPoints.length > 1"
-          :points="trendPoints.map(({ x, y }) => `${x},${y}`).join(' ')"
-          fill="none"
-          :stroke="lineColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-        <circle
-          v-else
-          :cx="trendPoints[0].x"
-          :cy="trendPoints[0].y"
-          r="2"
-          :fill="lineColor"
-        />
-      </svg>
+      <DashboardEChart
+        v-if="showComparison && hasTrend"
+        class="dashboard-sla-metric__sparkline"
+        :option="sparklineOption"
+        :label="$t('dashboard_sla_sparkline')"
+      />
     </div>
   </div>
 </template>
 <script setup>
+import DashboardEChart from "./DashboardEChart.vue";
 import { computed } from "vue";
 import { useDashboardI18n } from "@/composables/useDashboardI18n";
 import {
@@ -47,6 +30,7 @@ import {
 const props = defineProps({
   config: { type: Object, required: true },
   result: { type: Object, default: null },
+  comparisonUnit: { type: String, default: null },
 });
 const { t } = useDashboardI18n();
 const format = (value) =>
@@ -87,28 +71,31 @@ const changeText = computed(() => {
   const unit = isCount.value
     ? "dashboard_sla_count_unit"
     : "dashboard_sla_percentage_points";
-  return value + t(unit);
+  return value + (props.comparisonUnit ?? t(unit));
 });
 const lineColor = computed(() => props.config.sla_line_color || "#1677ff");
-const trendPoints = computed(() => {
-  const values = props.result?.sla?.trend || [];
-  const known = values
-    .filter((point) => point.value != null)
-    .map((point) => point.value);
-  if (!known.length) return [];
-  const low = Math.min(...known);
-  const span = Math.max(...known) - low;
-  return values.flatMap(({ value }, index) =>
-    value == null
-      ? []
-      : [
-          {
-            x: 3 + (index * 134) / Math.max(values.length - 1, 1),
-            y: span ? 34 - ((value - low) * 29) / span : 19,
-          },
-        ],
-  );
-});
+const hasTrend = computed(() =>
+  props.result?.sla?.trend?.some((point) => point.value != null),
+);
+const sparklineOption = computed(() => ({
+  grid: { left: 3, right: 3, top: 4, bottom: 4 },
+  xAxis: {
+    type: "category",
+    show: false,
+    data: (props.result?.sla?.trend || []).map((point) => point.date),
+  },
+  yAxis: { type: "value", show: false, scale: true },
+  series: [
+    {
+      type: "line",
+      data: (props.result?.sla?.trend || []).map((point) => point.value),
+      showSymbol: (props.result?.sla?.trend?.length || 0) === 1,
+      symbolSize: 4,
+      lineStyle: { width: 2 },
+      itemStyle: { color: lineColor.value },
+    },
+  ],
+}));
 </script>
 <style scoped lang="less">
 .dashboard-sla-metric {
@@ -134,7 +121,7 @@ const trendPoints = computed(() => {
   gap: 12px;
   min-height: 40px;
   margin-top: 12px;
-  svg {
+  .dashboard-sla-metric__sparkline {
     width: 140px;
     max-width: 48%;
     height: 38px;

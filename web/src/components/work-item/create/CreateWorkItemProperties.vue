@@ -112,6 +112,20 @@
             @save="$emit('update:assigneeIds', $event)"
           />
         </div>
+        <div
+          v-else-if="item.key === 'responsible_ids'"
+          class="create-assignee-field"
+        >
+          <AssigneeSelect
+            :value="responsibleIds"
+            :placeholder="$t('workspace_field_responsible')"
+            :members="members"
+            :disabled="!item.editable"
+            size="small"
+            :default-open="false"
+            @save="$emit('update:responsibleIds', $event)"
+          />
+        </div>
         <PlannedDatePicker
           v-else-if="item.key === 'planned_start_date'"
           :value="plannedStartDate"
@@ -199,6 +213,7 @@ const props = defineProps({
   priority: { type: [Number, String], default: undefined },
   versionId: { type: [Number, String], default: undefined },
   assigneeIds: { type: Array, default: () => [] },
+  responsibleIds: { type: Array, default: () => [] },
   plannedStartDate: { type: Object, default: null },
   plannedEndDate: { type: Object, default: null },
   estimatedWorkHours: { type: Number, default: 0 },
@@ -211,6 +226,7 @@ const emit = defineEmits([
   "update:severityId",
   "update:versionId",
   "update:assigneeIds",
+  "update:responsibleIds",
   "update:plannedStartDate",
   "update:plannedEndDate",
   "update:estimatedWorkHours",

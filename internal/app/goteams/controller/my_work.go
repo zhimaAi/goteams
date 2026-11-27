@@ -23,6 +23,10 @@ type crossWorkspaceWorkItemResponse struct {
 	WorkHours         string   `json:"work_hours"`
 	CommentCount      string   `json:"comment_count"`
 	CreatedBy         string   `json:"created_by"`
+	StartedAtEnabled  bool     `json:"started_at_enabled"`
+	EndedAtEnabled    bool     `json:"ended_at_enabled"`
+	StartedAt         string   `json:"started_at"`
+	EndedAt           string   `json:"ended_at"`
 	CreatedAt         string   `json:"created_at"`
 	UpdatedAt         string   `json:"updated_at"`
 	WorkspaceName     string   `json:"workspace_name"`
@@ -93,6 +97,10 @@ func toCrossWorkspaceWorkItemResponses(items []business.CrossWorkspaceWorkItemMo
 		if item.CreatedBy != nil {
 			response.CreatedBy = strconv.Itoa(*item.CreatedBy)
 		}
+		response.StartedAtEnabled = item.StartedAtEnabled
+		response.EndedAtEnabled = item.EndedAtEnabled
+		response.StartedAt = strconv.FormatInt(item.StartedAt, 10)
+		response.EndedAt = strconv.FormatInt(item.EndedAt, 10)
 		response.CreatedAt = strconv.FormatInt(item.CreatedAt, 10)
 		response.UpdatedAt = strconv.FormatInt(item.UpdatedAt, 10)
 		response.WorkspaceName = item.WorkspaceName

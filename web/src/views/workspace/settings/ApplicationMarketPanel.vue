@@ -148,6 +148,8 @@ const appMeta = {
   gantt: { icon: BarChartOutlined },
   knowledge_base: { icon: BookOutlined },
   dashboard: { icon: DashboardOutlined },
+  report: { icon: BarChartOutlined },
+  issue_statistics: { icon: BarChartOutlined },
   issue: { icon: FormOutlined },
 };
 

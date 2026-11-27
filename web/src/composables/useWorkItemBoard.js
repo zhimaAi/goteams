@@ -253,6 +253,12 @@ export function useWorkItemBoard(options = {}) {
     { key: "iteration", permission: "version:view", app: "iteration" },
     { key: "gantt", permission: "gantt:view", app: "gantt" },
     { key: "dashboard", permission: "dashboard:view", app: "dashboard" },
+    { key: "report", permission: "report:view", app: "report" },
+    {
+      key: "statistics",
+      permission: "issue_statistics:view",
+      app: "issue_statistics",
+    },
     { key: "knowledge", permission: "kb:view", app: "knowledge_base" },
     { key: "issue-invite", permission: "ticket:copy_link", app: "issue" },
   ];
@@ -275,6 +281,22 @@ export function useWorkItemBoard(options = {}) {
 
   function canAccessBoardTab(tab) {
     if (tab.key === "dashboard") return canViewDashboard.value;
+    if (tab.key === "report") {
+      return (
+        authStore.hasPermission("report:view") &&
+        (authStore.hasPermission("requirement:view") ||
+          (enabledApplications.value.includes("defect") &&
+            authStore.hasPermission("defect:view")))
+      );
+    }
+    if (tab.key === "statistics") {
+      return (
+        surface === "issue" &&
+        issueMetadata?.value?.workspace?.workspace_type === "issue" &&
+        authStore.hasPermission("requirement:view") &&
+        authStore.hasPermission(tab.permission)
+      );
+    }
     if (tab.key === "knowledge") {
       return (
         authStore.hasPermission("kb:view") ||
@@ -341,6 +363,8 @@ export function useWorkItemBoard(options = {}) {
     iteration: "requirement_filterVersion",
     gantt: "gantt_tab",
     dashboard: "app_dashboard",
+    report: "app_report",
+    statistics: "issue_statistics_title",
     knowledge: "app_knowledge_base",
     "issue-invite": "app_issue_invite",
   };
@@ -641,6 +665,8 @@ export function useWorkItemBoard(options = {}) {
       "defect_setting:field",
       "defect_setting:status",
       "defect_setting:priority",
+      "satisfaction:view",
+      "satisfaction:manage",
       "automation:view",
       "automation:manage",
       "application_market:view",
@@ -680,7 +706,12 @@ export function useWorkItemBoard(options = {}) {
     categoryEditTarget.value = null;
   });
 
-  const canEditActiveWorkItem = computed(() => canEditType(activeTab.value));
+  const canEditActiveWorkItem = computed(() =>
+    [
+      ...(fieldConfigsByType.value[activeTab.value] || []),
+      ...(customFieldsByType.value[activeTab.value] || []),
+    ].some((field) => field.can_edit === true),
+  );
   const canDeleteActiveWorkItem = computed(() =>
     hasTypePermission(activeTab.value, "delete"),
   );
@@ -763,6 +794,7 @@ export function useWorkItemBoard(options = {}) {
     plannedEndDate: fieldEnabled(activeTab.value, "planned_end_date"),
   }));
   const kanbanFieldEditability = computed(() => ({
+    status: fieldEditable(activeTab.value, "status"),
     priority: fieldEditable(activeTab.value, "priority"),
     assignee: fieldEditable(activeTab.value, "assignee"),
     plannedStartDate: fieldEditable(activeTab.value, "planned_start_date"),
@@ -902,6 +934,46 @@ export function useWorkItemBoard(options = {}) {
         });
       }
     }
+    if (
+      type === "requirement" &&
+      workspaceMetadata.value?.workspace?.workspace_type === "issue"
+    ) {
+      builtin.push(
+        {
+          field: "sla_status",
+          kind: "other",
+          label: t("sla_title"),
+          control: "select",
+          operator: "in",
+          available: !!workspaceMetadata.value?.settings?.sla_enabled,
+          options: [
+            { value: "entered", label: t("issue_filter_sla_entered") },
+            ...(workspaceMetadata.value?.sla_stages || []).flatMap((stage) => [
+              {
+                value: `completed_late:${stage.id}`,
+                label: t("issue_filter_stage_late", { stage: stage.name }),
+              },
+              {
+                value: `completed_on_time:${stage.id}`,
+                label: t("issue_filter_stage_on_time", { stage: stage.name }),
+              },
+            ]),
+          ],
+        },
+        {
+          field: "urge_status",
+          kind: "other",
+          label: t("view_field_urge_status"),
+          control: "select",
+          operator: "in",
+          options: [
+            { value: "", label: t("common_all") },
+            { value: "urged", label: t("issue_filter_urged") },
+            { value: "not_urged", label: t("issue_filter_not_urged") },
+          ],
+        },
+      );
+    }
     const custom = (customFieldsByType.value[type] || [])
       .map(customSearchFieldDescriptor)
       .filter(Boolean)
@@ -969,13 +1041,13 @@ export function useWorkItemBoard(options = {}) {
   }
 
   function fieldEditable(type, key) {
-    const config = fieldConfig(type, key);
-    return (
-      canEditType(type) &&
-      (["title", "status"].includes(key) ||
-        !config ||
-        Number(config.editable) === 1)
-    );
+    const customId = String(key).replace(/^custom[:_]/, "");
+    const config = /^custom[:_]/.test(key)
+      ? (customFieldsByType.value[type] || []).find(
+          (field) => String(field.id) === customId,
+        )
+      : fieldConfig(type, key);
+    return config?.can_edit === true;
   }
 
   function permissionType(type) {
@@ -991,16 +1063,8 @@ export function useWorkItemBoard(options = {}) {
     return hasTypePermission(type, "create");
   }
 
-  function canEditType(type) {
-    return hasTypePermission(type, "edit");
-  }
-
   function canDeleteRecord(record) {
     return hasTypePermission(record?.type, "delete");
-  }
-
-  function canEditRecord(record) {
-    return canEditType(record?.type);
   }
 
   // "复制需求" jumps to the create page prefilled from the source work item; the user can
@@ -1266,6 +1330,10 @@ export function useWorkItemBoard(options = {}) {
     },
     priority: { label: t("workspace_priority"), columnKey: "priority" },
     severity_id: { label: t("workspace_severity"), columnKey: "severity_id" },
+    responsible_ids: {
+      label: t("workspace_field_responsible"),
+      columnKey: "responsible_ids",
+    },
     planned_start_date: {
       label: t("workspace_plannedStartDateCol"),
       columnKey: "dueDate",
@@ -1287,6 +1355,11 @@ export function useWorkItemBoard(options = {}) {
       label: t("requirement_estimatedWorkHours"),
       columnKey: "estimatedHours",
     },
+    started_at: {
+      label: t("workspace_field_started_at"),
+      columnKey: "startedAt",
+    },
+    ended_at: { label: t("workspace_field_ended_at"), columnKey: "endedAt" },
     work_progress: {
       label: t("requirement_workProgress"),
       columnKey: "workProgress",
@@ -1378,7 +1451,16 @@ export function useWorkItemBoard(options = {}) {
       configs.length
         ? configs
         : Object.keys(builtinListFieldMeta.value)
-            .filter((key) => key !== "aging" && key !== "severity_id")
+            .filter(
+              (key) =>
+                ![
+                  "aging",
+                  "severity_id",
+                  "responsible_ids",
+                  "started_at",
+                  "ended_at",
+                ].includes(key),
+            )
             .map((key, index) => ({
               key,
               enabled: 1,
@@ -1398,7 +1480,8 @@ export function useWorkItemBoard(options = {}) {
       .filter(
         (field) =>
           field.columnKey &&
-          (field.columnKey !== "severity_id" || type === "defect"),
+          (!["severity_id", "responsible_ids"].includes(field.columnKey) ||
+            type === "defect"),
       );
     const customFields = (customFieldsByType.value[type] || []).map(
       (field) => ({
@@ -1437,6 +1520,21 @@ export function useWorkItemBoard(options = {}) {
         sort_order: Number.MAX_SAFE_INTEGER,
       });
     const orderedFields = sortFieldsByOrder(fields);
+    // Default list order is independent of legacy field-config seed positions.
+    if (type === "requirement") {
+      const anchor = orderedFields.find(
+        (field) => field.configKey === "estimated_work_hours",
+      );
+      if (anchor) {
+        const times = ["started_at", "ended_at"]
+          .map((key) => orderedFields.find((field) => field.configKey === key))
+          .filter(Boolean);
+        times.forEach((field) =>
+          orderedFields.splice(orderedFields.indexOf(field), 1),
+        );
+        orderedFields.splice(orderedFields.indexOf(anchor) + 1, 0, ...times);
+      }
+    }
     const statusIndex = orderedFields.findIndex(
       (field) => field.columnKey === "status",
     );
@@ -1850,6 +1948,37 @@ export function useWorkItemBoard(options = {}) {
     applyRequestedBoardTab();
   }
 
+  function issueSearchError(node) {
+    if (!node) return "";
+    if (node.conditions) {
+      return node.conditions.map(issueSearchError).find(Boolean) || "";
+    }
+    if (node.field !== "sla_status" || !node.values?.length) return "";
+    const descriptor = searchFieldsForType("requirement").find(
+      (field) => field.field === "sla_status",
+    );
+    if (!descriptor?.available) return t("issue_filter_sla_disabled");
+    if (!descriptor.options.some((option) => option.value === node.values[0]))
+      return t("issue_filter_stage_unavailable");
+    return "";
+  }
+
+  function hasIssueFilters(node) {
+    if (!node) return false;
+    return (
+      node.conditions?.some(hasIssueFilters) ||
+      (["sla_status", "urge_status"].includes(node.field) &&
+        !!node.values?.length)
+    );
+  }
+
+  function hasAppliedIssueFilters() {
+    return (
+      hasIssueFilters(currentAppliedSearchFilters.value) ||
+      hasIssueFilters(findView(activeTab.value, currentViewId.value)?.filters)
+    );
+  }
+
   // Fetch the requirement list.
   async function fetchRequirements() {
     // Planning, iteration, gantt and knowledge panels fetch their own data inside
@@ -1867,6 +1996,17 @@ export function useWorkItemBoard(options = {}) {
     if (isWorkItemList) resetTreeContext();
     loading.value = true;
     try {
+      const issueError =
+        issueSearchError(currentAppliedSearchFilters.value) ||
+        issueSearchError(
+          findView(activeTab.value, currentViewId.value)?.filters,
+        );
+      if (issueError) {
+        requirements.value = [];
+        total.value = 0;
+        message.warning(issueError);
+        return;
+      }
       if (
         isWorkItemList &&
         filterStatusActive.value &&
@@ -2380,6 +2520,14 @@ export function useWorkItemBoard(options = {}) {
         },
         100,
       ),
+      responsible_ids: editableDataColumn(
+        {
+          title: t("workspace_field_responsible"),
+          key: "responsible_ids",
+          width: 160,
+        },
+        "responsible_ids",
+      ),
       severity_id: editableDataColumn(
         {
           title: t("workspace_severity"),
@@ -2429,6 +2577,24 @@ export function useWorkItemBoard(options = {}) {
         },
         "assignee_ids",
         110,
+      ),
+      started_at: dataColumn(
+        {
+          title: t("workspace_field_started_at"),
+          dataIndex: "started_at",
+          key: "startedAt",
+          width: 180,
+        },
+        180,
+      ),
+      ended_at: dataColumn(
+        {
+          title: t("workspace_field_ended_at"),
+          dataIndex: "ended_at",
+          key: "endedAt",
+          width: 180,
+        },
+        180,
       ),
       created_at: dataColumn(
         {
@@ -2778,6 +2944,7 @@ export function useWorkItemBoard(options = {}) {
       return rawValues.slice(0, 2);
     }
     const values = uniqueStringValues(rawValues);
+    if (["sla_status", "urge_status"].includes(condition.field)) return values;
     if (!values.length) return [];
     if (condition.field === "id") {
       const id = Number(values[0]);
@@ -3013,6 +3180,14 @@ export function useWorkItemBoard(options = {}) {
   }
 
   async function handleTabChange(key) {
+    if (surface === "issue" && key === "report") {
+      router.push({
+        name: "RequirementBoard",
+        params: { wsId: wsId.value },
+        query: { tab: key },
+      });
+      return;
+    }
     if (
       surface === "issue" &&
       key !== "issue-invite" &&
@@ -3031,6 +3206,7 @@ export function useWorkItemBoard(options = {}) {
     if (surface === "issue" && !["requirement", "defect"].includes(key)) {
       const name = {
         dashboard: "IssueDashboard",
+        statistics: "IssueStatistics",
         knowledge: "IssueKnowledge",
         planning: "IssuePlanning",
         iteration: "IssueIteration",
@@ -3230,8 +3406,7 @@ export function useWorkItemBoard(options = {}) {
       { status_id: "status", version_id: "version", assignee_ids: "assignee" }[
         field
       ] || field;
-    const editable =
-      canEditRecord(record) && fieldEditable(record.type, configKey);
+    const editable = fieldEditable(record.type, configKey);
     if (!editable) return {};
     const cell = {
       class: "editable-table-cell",
@@ -3262,7 +3437,6 @@ export function useWorkItemBoard(options = {}) {
   }
 
   function startEdit(record, field, customField) {
-    if (!canEditRecord(record)) return false;
     if (field === "severity_id" && savingSeverityRows.has(String(record.id)))
       return false;
     const configKey =
@@ -3409,7 +3583,7 @@ export function useWorkItemBoard(options = {}) {
           parent_id: parentId,
           type: "requirement",
         };
-        if (currentViewId.value) params.view_id = currentViewId.value;
+        // Expanding a requirement reveals its visible children regardless of the list view.
         if (currentListSort.value.field) {
           params.sort_field = currentListSort.value.field;
           params.sort_direction = currentListSort.value.direction;
@@ -3634,7 +3808,8 @@ export function useWorkItemBoard(options = {}) {
         updatedValues,
       );
       if (field === "priority" && slaEnabled.value) await loadSLASummaries();
-      if (field === "estimated_work_hours") await fetchRequirements();
+      if (field === "estimated_work_hours" || hasAppliedIssueFilters())
+        await fetchRequirements();
       if (field === "version_id" || field === "status_id")
         await fetchVersions();
       if (field === "assignee_ids")
@@ -3651,26 +3826,33 @@ export function useWorkItemBoard(options = {}) {
   // Do NOT clearEditing here, otherwise the component unmounts and the
   // dropdown disappears while saving. The edit session ends when the user
   // clicks outside (handled by AssigneeSelect @cancel -> cancelEditing).
-  async function saveAssigneesInline(record, value) {
-    if (!isEditing(record, "assignee_ids")) return;
-    if (String(record.assignee_ids) === String(value)) return;
+  async function saveAssigneesInline(record, value, field = "assignee_ids") {
+    if (!isEditing(record, field)) return;
+    if (String(record[field] || []) === String(value)) return;
     const ids = Array.isArray(value) ? value : [];
     try {
-      const updatedValues = { assignee_ids: ids };
+      const updatedValues = { [field]: ids };
       const names = [];
       const avatars = [];
       const usernames = [];
       ids.forEach((id) => {
         const member =
           members.value.find((m) => Number(m.user_id) === Number(id)) || {};
-        names.push(member.user_name || "");
+        const index = record[field]?.indexOf(id) ?? -1;
+        const previousName =
+          field === "responsible_ids" ? record.responsible_names?.[index] : "";
+        names.push(member.user_name || previousName || "");
         avatars.push(member.user_avatar || "");
         usernames.push(member.user_username || "");
       });
-      updatedValues.assignee_names = names;
-      updatedValues.assignee_avatars = avatars;
-      updatedValues.assignee_usernames = usernames;
-      await updateRequirement(wsId.value, record.id, updatedValues);
+      if (field === "responsible_ids") {
+        updatedValues.responsible_names = names;
+      } else {
+        updatedValues.assignee_names = names;
+        updatedValues.assignee_avatars = avatars;
+        updatedValues.assignee_usernames = usernames;
+      }
+      await updateRequirement(wsId.value, record.id, { [field]: ids });
       patchLoadedWorkItem(
         requirements.value,
         childrenMap.value,
@@ -3681,7 +3863,8 @@ export function useWorkItemBoard(options = {}) {
       // AssigneeSelect, so the list order does not shift during the
       // current open session.
       showWorkItemUpdateSuccess(t("workspace_updateSuccess"));
-    } catch {
+    } catch (error) {
+      if (field === "responsible_ids") throw error;
       /* handled by interceptor; record still contains the original value */
     }
   }
@@ -3858,7 +4041,17 @@ export function useWorkItemBoard(options = {}) {
   }
 
   async function handleBatchUpdate(field, value) {
-    if (!canEditActiveWorkItem.value) return;
+    if (
+      !fieldEditable(
+        activeTab.value,
+        {
+          status_id: "status",
+          version_id: "version",
+          assignee_ids: "assignee",
+        }[field] || field,
+      )
+    )
+      return;
     const ids = uniqueWorkItemIds(selectedRowKeys.value);
     if (!ids.length) return;
     if (ids.length > 500) {
@@ -3919,7 +4112,7 @@ export function useWorkItemBoard(options = {}) {
   }
 
   async function submitBatchAssignees() {
-    if (!canEditActiveWorkItem.value) return;
+    if (!fieldEditable(activeTab.value, "assignee")) return;
     const ids = uniqueWorkItemIds(selectedRowKeys.value);
     if (!ids.length) return;
     if (ids.length > 500) {
@@ -4248,6 +4441,11 @@ export function useWorkItemBoard(options = {}) {
         fetchVersions(),
         refreshRequirementCategories(),
       ]);
+      return;
+    }
+    if (hasAppliedIssueFilters()) {
+      await Promise.all([fetchRequirements(), fetchVersions()]);
+      if (listPreferences.viewMode === "board") kanbanRef.value?.reload();
       return;
     }
     let previous;

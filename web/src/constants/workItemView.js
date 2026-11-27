@@ -35,6 +35,8 @@ export const VIEW_FILTER_FIELD_OPERATORS = {
   work_item_type: ["in", "not_in"],
   category: ["in", "not_in", "empty", "not_empty"],
   aging_status: ["in", "not_in"],
+  urge_status: ["in"],
+  sla_status: ["in"],
   planned_start_date: ["eq", "between", "dynamic", "empty", "not_empty"],
   planned_end_date: ["eq", "between", "dynamic", "empty", "not_empty"],
   created_at: [
@@ -186,7 +188,11 @@ export function normalizeSearchFilterTree(tree, typeKey = "requirement") {
       (field) => field !== "category" || typeKey === "requirement",
     ),
   );
-  if (typeKey === "requirement") allowed.add("aging_status");
+  if (typeKey === "requirement") {
+    ["aging_status", "urge_status", "sla_status"].forEach((field) =>
+      allowed.add(field),
+    );
+  }
   if (!["requirement", "defect"].includes(typeKey)) allowed.delete("template");
   const seen = new Set();
   const conditions = [];

@@ -1,5 +1,17 @@
 <template>
-  <div class="settings-panel fields-panel">
+  <div
+    class="settings-panel fields-panel"
+    :style="{
+      '--field-bg': themeToken.colorBgContainer,
+      '--field-border': themeToken.colorBorderSecondary,
+      '--field-header-bg': themeToken.colorFillQuaternary,
+      '--field-text': themeToken.colorText,
+      '--field-secondary': themeToken.colorTextSecondary,
+      '--field-tertiary': themeToken.colorTextTertiary,
+      '--field-quaternary': themeToken.colorTextQuaternary,
+      '--field-primary-bg': themeToken.colorPrimaryBg,
+    }"
+  >
     <a-card
       :title="$t('settings_attributeFields')"
       size="small"
@@ -11,83 +23,161 @@
             <PlusOutlined />
             {{ $t("settings_newField") }}
           </a-button>
-          <a-button size="small" :loading="restoring" @click="restoreDefault">
+          <a-button
+            size="small"
+            :loading="restoring"
+            @click="confirmRestoreDefault"
+          >
             {{ $t("settings_restoreDefault") }}
           </a-button>
         </a-space>
       </template>
-      <div v-if="loading" class="empty-fields">...</div>
-      <div v-else ref="fieldListRef" class="field-list" :class="{ ordering }">
-        <div v-for="field in fields" :key="field.orderKey" class="field-row">
-          <div class="field-main">
-            <a-tooltip :title="canManage ? $t('settings_dragFieldToSort') : ''">
-              <span
-                class="drag-handle"
-                :class="{ disabled: !canManage || ordering }"
-              >
-                <HolderOutlined />
-              </span>
-            </a-tooltip>
-
-            <div class="field-info">
-              <template v-if="field.kind === 'builtin'">
-                <span class="field-name">{{ field.label }}</span>
-              </template>
-              <template v-else>
-                <strong class="field-name">{{ field.name }}</strong>
-                <span v-if="fieldSummary(field)" class="field-options-count">
-                  {{ fieldSummary(field) }}
-                </span>
-              </template>
-            </div>
-
-            <a-tag
-              v-if="field.kind === 'builtin'"
-              color="blue"
-              class="field-tag"
-            >
-              {{ $t("settings_builtin") }}
-            </a-tag>
-            <a-tag v-else class="field-tag">
-              {{ $t(typeLabelKey(field.field_type)) }}
-            </a-tag>
+      <p v-if="typeKey !== 'planning'" class="edit-role-help">
+        {{ $t("settings_editRolesPrototypeHelp") }}
+      </p>
+      <div class="field-table-scroll">
+        <div
+          class="field-table"
+          :class="{ 'field-table--without-roles': typeKey === 'planning' }"
+          role="table"
+          :aria-label="$t('settings_attributeFields')"
+        >
+          <div class="field-heading" role="row">
+            <span role="columnheader">{{ $t("settings_fieldName") }}</span>
+            <span role="columnheader">{{ $t("settings_fieldType") }}</span>
+            <span v-if="typeKey !== 'planning'" role="columnheader">{{
+              $t("settings_editRoles")
+            }}</span>
+            <span class="field-controls" role="columnheader">{{
+              $t("settings_action")
+            }}</span>
           </div>
-
-          <div class="field-side">
-            <a-switch
-              v-if="field.kind === 'builtin'"
-              :checked="field.visible"
-              :disabled="!canManage || field.locked || field.saving || ordering"
-              size="small"
-              :loading="field.saving"
-              @change="(value) => onBuiltinChange(field, value)"
-            />
-            <a-space v-else :size="4">
-              <a-switch
-                :checked="!!field.is_enabled"
-                :disabled="!canManage || ordering"
-                size="small"
-                @change="(value) => onCustomEnabledChange(field, value)"
-              />
-              <a-button
-                v-if="canManage"
-                type="link"
-                size="small"
-                class="field-action"
-                @click="openCustomEditor(field.id)"
+          <div v-if="loading" class="empty-fields">...</div>
+          <div
+            v-else
+            ref="fieldListRef"
+            class="field-list"
+            :class="{ ordering }"
+            role="rowgroup"
+          >
+            <div
+              v-for="field in fields"
+              :key="field.orderKey"
+              class="field-row"
+              role="row"
+            >
+              <div class="field-title-cell" role="cell">
+                <a-tooltip
+                  :title="canManage ? $t('settings_dragFieldToSort') : ''"
+                >
+                  <span
+                    class="drag-handle"
+                    :class="{ disabled: !canManage || ordering }"
+                    ><HolderOutlined
+                  /></span>
+                </a-tooltip>
+                <div class="field-info">
+                  <span
+                    class="field-name"
+                    :title="field.kind === 'builtin' ? field.label : field.name"
+                    >{{
+                      field.kind === "builtin" ? field.label : field.name
+                    }}</span
+                  >
+                  <span
+                    v-if="field.kind !== 'builtin' && fieldSummary(field)"
+                    class="field-options-count"
+                    >{{ fieldSummary(field) }}</span
+                  >
+                </div>
+              </div>
+              <div class="field-type-cell" role="cell">
+                <a-tag
+                  :color="field.kind === 'builtin' ? 'blue' : undefined"
+                  class="field-tag"
+                  >{{
+                    $t(
+                      field.kind === "builtin"
+                        ? "settings_builtin"
+                        : "settings_custom",
+                    )
+                  }}</a-tag
+                >
+                <span class="field-type">{{
+                  field.kind === "builtin"
+                    ? builtinTypeLabels[field.key]
+                      ? $t(builtinTypeLabels[field.key])
+                      : "—"
+                    : $t(typeLabelKey(field.field_type))
+                }}</span>
+              </div>
+              <div
+                v-if="typeKey !== 'planning'"
+                class="edit-role-cell"
+                role="cell"
               >
-                <EditOutlined />
-              </a-button>
-              <a-popconfirm
-                v-if="canManage"
-                :title="$t('settings_deleteFieldConfirm')"
-                @confirm="deleteCustom(field.id)"
-              >
-                <a-button type="link" size="small" danger class="field-action">
-                  <DeleteOutlined />
-                </a-button>
-              </a-popconfirm>
-            </a-space>
+                <FieldEditRoleSelect
+                  v-if="field.supports_edit_roles"
+                  :key="`${wsId}:${typeKey}:${field.orderKey}`"
+                  :ws-id="wsId"
+                  :type-key="typeKey"
+                  :field="field"
+                  :roles="roles"
+                  :disabled="
+                    !canManage || rolesLoading || rolesFailed || ordering
+                  "
+                  @saved="(policy) => onFieldRolesSaved(field, policy)"
+                />
+                <span v-else class="field-readonly">{{
+                  field.supports_edit_roles === false
+                    ? $t("settings_editRolesNotRequired")
+                    : "—"
+                }}</span>
+              </div>
+              <div class="field-controls" role="cell">
+                <a-switch
+                  v-if="field.kind === 'builtin'"
+                  :checked="field.visible"
+                  :disabled="
+                    !canManage || field.locked || field.saving || ordering
+                  "
+                  :loading="field.saving"
+                  :aria-label="field.label"
+                  @change="(value) => onBuiltinChange(field, value)"
+                />
+                <a-space v-else :size="4">
+                  <a-switch
+                    :checked="!!field.is_enabled"
+                    :disabled="!canManage || ordering"
+                    :aria-label="field.name"
+                    @change="(value) => onCustomEnabledChange(field, value)"
+                  />
+                  <a-button
+                    v-if="canManage"
+                    type="link"
+                    size="small"
+                    class="field-action"
+                    :aria-label="$t('common_edit')"
+                    @click="openCustomEditor(field.id)"
+                    ><EditOutlined
+                  /></a-button>
+                  <a-popconfirm
+                    v-if="canManage"
+                    :title="$t('settings_deleteFieldConfirm')"
+                    @confirm="deleteCustom(field.id)"
+                  >
+                    <a-button
+                      type="link"
+                      size="small"
+                      danger
+                      class="field-action"
+                      :aria-label="$t('common_delete')"
+                      ><DeleteOutlined
+                    /></a-button>
+                  </a-popconfirm>
+                </a-space>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -113,7 +203,7 @@ import {
   watch,
 } from "vue";
 import { useI18n } from "vue-i18n";
-import { message } from "ant-design-vue";
+import { Modal, message, theme } from "ant-design-vue";
 import Sortable from "sortablejs";
 import {
   DeleteOutlined,
@@ -124,6 +214,7 @@ import {
 import {
   deleteCustomField,
   listCustomFields,
+  listTemplateRoleOptions,
   listFieldConfigs,
   resetFieldConfigs,
   saveFieldConfigs,
@@ -142,6 +233,7 @@ import {
 import { cascaderDepth } from "@/utils/customField";
 import { buildFieldOrderItems, sortFieldsByOrder } from "@/utils/fieldOrder";
 import { typeSettingPermission } from "@/utils/typePermission";
+import FieldEditRoleSelect from "./components/FieldEditRoleSelect.vue";
 import CustomFieldEditorModal from "./components/CustomFieldEditorModal.vue";
 
 const props = defineProps({
@@ -150,7 +242,39 @@ const props = defineProps({
 });
 
 const { t: $t } = useI18n();
+const { token: themeToken } = theme.useToken();
 const authStore = useAuthStore();
+const builtinTypeLabels = {
+  id: "settings_fieldTypeText",
+  row_index: "settings_fieldTypeText",
+  title: "settings_fieldTypeText",
+  description: "settings_fieldTypeTextarea",
+  status: "settings_fieldTypeSingleChoice",
+  version: "settings_fieldTypeSingleChoice",
+  category: "settings_fieldTypeSingleChoice",
+  priority: "settings_fieldTypeSingleChoice",
+  severity_id: "settings_fieldTypeSingleChoice",
+  assignee: "settings_fieldTypeMember",
+  responsible_ids: "settings_fieldTypeMember",
+  created_by: "settings_fieldTypeMember",
+  planned_start_date: "settings_fieldTypeDate",
+  planned_end_date: "settings_fieldTypeDate",
+  started_at: "settings_fieldTypeDate",
+  ended_at: "settings_fieldTypeDate",
+  created_at: "settings_fieldTypeDate",
+  estimated_work_hours: "settings_fieldTypeNumber",
+  completed_work_hours: "settings_fieldTypeNumber",
+  remaining_work_hours: "settings_fieldTypeNumber",
+  overtime_work_hours: "settings_fieldTypeNumber",
+  work_progress: "settings_fieldTypeNumber",
+  related_items: "settings_fieldTypeRelatedItems",
+};
+
+function onFieldRolesSaved(field, policy) {
+  Object.assign(field, policy);
+  authStore.clearProjectMetadata();
+}
+
 function typeLabelKey(type) {
   return CUSTOM_FIELD_TYPE_LABELS[type] || type;
 }
@@ -187,6 +311,9 @@ function fieldSummary(field) {
 }
 
 const fields = ref([]);
+const roles = ref([]);
+const rolesLoading = ref(false);
+const rolesFailed = ref(false);
 const loading = ref(false);
 const restoring = ref(false);
 const ordering = ref(false);
@@ -207,12 +334,22 @@ const editingField = computed(
 async function loadAll() {
   loading.value = true;
   try {
-    const [builtinFields, customFields] = await Promise.all([
+    rolesLoading.value = true;
+    rolesFailed.value = false;
+    const [builtinFields, customFields, roleOptions] = await Promise.all([
       listFieldConfigs(props.wsId, props.typeKey),
       listCustomFields(props.wsId, props.typeKey),
+      props.typeKey !== "planning" && canManage.value
+        ? listTemplateRoleOptions(props.wsId).catch(() => {
+            rolesFailed.value = true;
+            return [];
+          })
+        : Promise.resolve([]),
     ]);
+    roles.value = roleOptions || [];
     fields.value = sortFieldsByOrder([
       ...(builtinFields || []).map((field) => ({
+        ...field,
         kind: "builtin",
         orderKey: `builtin:${field.key}`,
         key: field.key,
@@ -233,6 +370,7 @@ async function loadAll() {
     fields.value = [];
   } finally {
     loading.value = false;
+    rolesLoading.value = false;
   }
 }
 
@@ -258,11 +396,20 @@ async function onBuiltinChange(field, value) {
 }
 
 // Restore defaults: the backend resets enabled state and order by preset (custom fields moved to the end).
+function confirmRestoreDefault() {
+  if (props.typeKey === "planning") return restoreDefault();
+  Modal.confirm({
+    title: $t("settings_restoreDefault"),
+    content: $t("settings_editRolesResetConfirm"),
+    onOk: restoreDefault,
+  });
+}
 async function restoreDefault() {
   if (!canManage.value) return;
   restoring.value = true;
   try {
     await resetFieldConfigs(props.wsId, props.typeKey);
+    authStore.clearProjectMetadata();
     message.success($t("common_saveSuccess"));
     await loadAll();
   } catch {
@@ -423,157 +570,184 @@ watch(
 
 <style scoped lang="less">
 .settings-panel {
-  width: min(920px, 100%);
+  width: min(1090px, 100%);
   margin: 0 auto;
 }
 
 .settings-card {
-  overflow: hidden;
-  border-color: #eef1f6;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(24, 43, 80, 0.04);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 
   :deep(.ant-card-head) {
-    min-height: 54px;
-    padding: 0 16px;
-    background: #f5f7fa;
-    border-color: #eef1f6;
-    font-weight: 600;
-  }
-
-  :deep(.ant-card-head-title) {
-    padding: 15px 0;
-    font-size: 14px;
+    padding: 0;
+    border-bottom: 0;
+    background: transparent;
   }
 
   :deep(.ant-card-body) {
-    padding: 16px;
+    padding: 0;
   }
 }
 
-.field-list {
-  display: flex;
-  flex-direction: column;
+.edit-role-help {
+  margin: 0;
+  padding: 10px 0 16px;
+  color: var(--field-secondary);
+  font-size: 13px;
+  line-height: 22px;
+}
 
-  &.ordering {
-    pointer-events: none;
-    opacity: 0.72;
+.field-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--field-border);
+  border-radius: 10px;
+  background: var(--field-bg);
+}
+
+.field-table {
+  --field-columns: minmax(180px, 1.1fr) minmax(190px, 1fr) minmax(188px, 2.4fr)
+    112px;
+  min-width: 760px;
+
+  &--without-roles {
+    --field-columns: minmax(180px, 1.1fr) minmax(190px, 1fr) 112px;
+    min-width: 560px;
   }
+}
+
+.field-heading,
+.field-row {
+  display: grid;
+  grid-template-columns: var(--field-columns);
+  align-items: center;
+  column-gap: 16px;
+  padding: 0 24px;
+}
+
+.field-heading {
+  min-height: 54px;
+  border-bottom: 1px solid var(--field-border);
+  background: var(--field-header-bg);
+  color: var(--field-text);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.field-list.ordering {
+  pointer-events: none;
+  opacity: 0.72;
 }
 
 .field-row {
-  display: flex;
-  min-height: 47px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 4px;
-  border-bottom: 1px solid #eef1f6;
-  background: #fff;
+  min-height: 72px;
+  border-bottom: 1px solid var(--field-border);
+  background: var(--field-bg);
   transition:
-    opacity 0.15s ease,
     background-color 0.15s ease,
-    box-shadow 0.2s ease;
-
+    opacity 0.15s ease;
   &:last-child {
     border-bottom: 0;
   }
 }
 
-.field-row-ghost {
-  background: #f0f7ff;
-  opacity: 0.6;
-}
-
-.field-row-chosen {
-  box-shadow: 0 3px 10px rgb(16 24 40 / 12%);
-}
-
-.field-row-drag {
-  opacity: 0.92;
-}
-
-.field-main {
+.field-title-cell,
+.field-type-cell,
+.field-info {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 10px;
+}
+.field-title-cell {
+  gap: 12px;
+}
+.field-type-cell {
+  gap: 16px;
+}
+.field-info {
+  gap: 6px;
 }
 
 .drag-handle {
   display: inline-flex;
   flex: none;
-  align-items: center;
-  color: rgba(0, 0, 0, 0.35);
+  color: var(--field-quaternary);
+  font-size: 16px;
   cursor: grab;
-  font-size: 17px;
-
   &:active {
     cursor: grabbing;
   }
-
   &:hover:not(.disabled) {
-    color: rgba(0, 0, 0, 0.65);
+    color: var(--field-secondary);
   }
-
   &.disabled {
     cursor: default;
-    opacity: 0.5;
   }
 }
 
-.field-name {
+.field-name,
+.field-type {
   min-width: 0;
+  color: var(--field-text);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+}
+.field-name {
   overflow: hidden;
-  color: rgba(0, 0, 0, 0.88);
-  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.field-side {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 10px;
-  margin-left: auto;
+.field-type {
+  color: var(--field-secondary);
+  overflow-wrap: anywhere;
 }
-
-/* Fixed-width name column keeps the type tag on the same column for all rows. */
-.field-info {
-  display: flex;
-  flex: none;
-  width: 350px;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-}
-
 .field-tag {
-  display: inline-flex;
   flex: none;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
   margin-inline-end: 0;
-  font-size: 11px;
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 20px;
 }
-
 .field-options-count {
-  flex: none;
-  color: #999;
-  font-size: 11px;
+  overflow: hidden;
+  color: var(--field-tertiary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
+.edit-role-cell {
+  min-width: 0;
+}
+.field-readonly {
+  color: var(--field-tertiary);
+  font-size: 14px;
+}
+.field-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  :deep(.ant-switch-checked.ant-switch-disabled) {
+    opacity: 1;
+  }
+}
 .field-action {
   padding: 0 4px;
 }
-
+.field-row-ghost {
+  background: var(--field-primary-bg);
+  opacity: 0.6;
+}
+.field-row-chosen {
+  box-shadow: 0 3px 10px rgb(16 24 40 / 12%);
+}
+.field-row-drag {
+  opacity: 0.92;
+}
 .empty-fields {
-  display: flex;
-  min-height: 52px;
-  align-items: center;
-  justify-content: center;
-  color: rgba(0, 0, 0, 0.45);
+  padding: 24px;
+  color: var(--field-secondary);
   text-align: center;
 }
 </style>

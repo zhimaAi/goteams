@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lib/pq"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -254,6 +256,7 @@ func (c *TemplateConfigCopier) run(tx *sql.Tx) error {
 		{`workspaces_settings`, c.copySettings},
 		{`workspace_field_configs`, c.copyFieldConfigs},
 		{`workspace_custom_fields`, c.copyCustomFields},
+		{`status_transition_settings`, c.copyStatusTransitionSettings},
 		{`workspace_work_item_attributes`, c.copyWorkItemAttributes},
 		{`workspace_applications`, c.copyApplications},
 		// Navigation entries are application keys, so this runs after the applications copy.
@@ -270,6 +273,7 @@ func (c *TemplateConfigCopier) run(tx *sql.Tx) error {
 		// mappings are complete.
 		{`automation_rules`, c.copyAutomationRules},
 		{`roles`, c.copyRoles},
+		{`field_edit_roles`, c.copyFieldEditRoles},
 		// Dashboards run after roles: a role-visible board's dashboard_visibility_roles rows
 		// are remapped through the role id map the roles step just built.
 		{`dashboards`, c.copyDashboards},
@@ -400,16 +404,14 @@ func (c *TemplateConfigCopier) copySettings() error {
 		requirement_initial_status_id = $1, defect_initial_status_id = $2, planning_initial_status_id = $3,
 		requirement_final_status_ids = $4, defect_final_status_ids = $5, planning_final_status_ids = $6,
 		requirement_template_enabled = $7, defect_template_enabled = $8,
-		requirement_status_transition = $9, defect_status_transition = $10,
-		requirement_aging_control = $11, updated_at = $12,
-		requirement_completed_status_ids = $15, defect_completed_status_ids = $16
-		WHERE admin_id = $13 AND workspace_id = $14`, c.tx,
+		requirement_aging_control = $9, updated_at = $10,
+		requirement_completed_status_ids = $13, defect_completed_status_ids = $14
+		WHERE admin_id = $11 AND workspace_id = $12`, c.tx,
 		mappedInitial(`requirement_initial_status_id`), mappedInitial(`defect_initial_status_id`),
 		mappedInitial(`planning_initial_status_id`),
 		mappedFinal(`requirement_final_status_ids`), mappedFinal(`defect_final_status_ids`),
 		mappedFinal(`planning_final_status_ids`),
 		row[`requirement_template_enabled`], row[`defect_template_enabled`],
-		row[`requirement_status_transition`], row[`defect_status_transition`],
 		agingControl, c.now, c.adminId, c.newWsId, mappedFinal(`requirement_completed_status_ids`), mappedFinal(`defect_completed_status_ids`)); err != nil {
 		logs.Error("update workspace settings err:%s", err.Error())
 		return err
@@ -520,6 +522,10 @@ func (c *TemplateConfigCopier) copyApplications() error {
 		return err
 	}
 	for _, row := range rows {
+		// 创建报表应用默认关闭，模板配置不能直接开启。
+		if row[`app_key`] == define.AppKeyReport {
+			continue
+		}
 		if row[`app_key`] == define.AppKeyIssue && cast.ToInt(row[`enabled`]) == 1 {
 			c.issueEnabled = true
 			if _, err := ensureIssueInviteConfigTx(c.tx, c.adminId, c.newWsId, c.userId, int64(c.now)); err != nil {
@@ -576,6 +582,19 @@ func (c *TemplateConfigCopier) copyNavigationSettings() error {
 		return nil
 	}
 	row := rows[0]
+	raw := row[`main_nav_order`]
+	var order []string
+	if json.Unmarshal([]byte(raw), &order) == nil && slices.Contains(order, define.AppKeyReport) {
+		order = slices.DeleteFunc(order, func(key string) bool { return key == define.AppKeyReport })
+		if len(order) == 0 {
+			order = defaultNavigationOrder()
+		}
+		encoded, err := json.Marshal(order)
+		if err != nil {
+			return err
+		}
+		raw = string(encoded)
+	}
 	if _, err := msql.RawExec(define.Postgres, `INSERT INTO `+define.TableWorkspaceNavigationSettings+`
 		(admin_id, workspace_id, main_nav_order, nav_style, prevent_member_edit, updated_by, updated_at, created_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
@@ -585,7 +604,7 @@ func (c *TemplateConfigCopier) copyNavigationSettings() error {
 			prevent_member_edit = EXCLUDED.prevent_member_edit,
 			updated_by = EXCLUDED.updated_by,
 			updated_at = EXCLUDED.updated_at`, c.tx,
-		c.adminId, c.newWsId, row[`main_nav_order`], row[`nav_style`],
+		c.adminId, c.newWsId, raw, row[`nav_style`],
 		row[`prevent_member_edit`], c.userId, c.now); err != nil {
 		logs.Error("copy workspace navigation settings err:%s", err.Error())
 		return err
@@ -1640,7 +1659,11 @@ func (c *TemplateConfigCopier) syncRolePermissions(templateRole msql.Params, tar
 		logs.Error("delete role permissions err:%s", err.Error())
 		return err
 	}
-	for _, key := range keys {
+	issueWorkspace, err := IsIssueWorkspace(c.adminId, c.newWsId)
+	if err != nil {
+		return err
+	}
+	for _, key := range excludeIssueReportPermissions(keys, issueWorkspace) {
 		if _, err := msql.RawExec(define.Postgres, `INSERT INTO `+define.TableRolePermissions+`
 			(admin_id, role_id, permission_key, created_at, updated_at)
 			VALUES ($1,$2,$3,$4,$5)`, c.tx,
@@ -1675,4 +1698,120 @@ func templateRolePermissionKeys(templateRole msql.Params) ([]string, error) {
 		registered = append(registered, key)
 	}
 	return registered, nil
+}
+
+// copyStatusTransitionSettings 必须在状态和自定义字段映射完成后写入。
+func (c *TemplateConfigCopier) copyStatusTransitionSettings() error {
+	rows, err := c.sourceRows(SrcWorkspacesSettings)
+	if err != nil || len(rows) == 0 {
+		return err
+	}
+	for _, typ := range []string{define.TypeKeyRequirement, define.TypeKeyDefect} {
+		form := remapStatusTransitionForm(parseStatusTransitionForm(rows[0][typ+"_status_transition"]), c.mappings.statuses, c.mappings.customFields)
+		raw, err := encodeStatusTransitionForm(form)
+		if err != nil {
+			return err
+		}
+		if _, err = statusActionExec(c.tx, "UPDATE "+define.TableWorkspaceSettings+" SET "+typ+"_status_transition=$3 WHERE admin_id=$1 AND workspace_id=$2", c.adminId, c.newWsId, raw); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func remapStatusTransitionForm(form StatusTransitionFormModel, statuses, customFields map[int]int) StatusTransitionFormModel {
+	remapFields := func(fields []StatusTransitionFieldModel) []StatusTransitionFieldModel {
+		result := make([]StatusTransitionFieldModel, 0, len(fields))
+		for _, field := range fields {
+			if id, custom := parseStatusTransitionCustomFieldID(field.Key); custom {
+				mapped := customFields[id]
+				if mapped <= 0 {
+					continue
+				}
+				field.Key = statusTransitionCustomKeyPrefix + strconv.Itoa(mapped)
+			}
+			result = append(result, field)
+		}
+		return result
+	}
+	form.Fields = remapFields(form.Fields)
+	rules := make([]StatusTransitionRuleModel, 0, len(form.StatusRules))
+	for _, rule := range form.StatusRules {
+		if mapped := statuses[rule.StatusId]; mapped > 0 {
+			rule.StatusId = mapped
+			rule.Fields = remapFields(rule.Fields)
+			rules = append(rules, rule)
+		}
+	}
+	form.StatusRules = rules
+	return form
+}
+
+// copyFieldEditRoles 在角色映射完成后复制字段授权，避免跨空间使用旧角色 ID。
+func (c *TemplateConfigCopier) copyFieldEditRoles() error {
+	roleMap := make(map[int]int, len(c.mappings.roles))
+	for oldId, newId := range c.mappings.roles {
+		roleMap[oldId] = newId
+	}
+	sourceRoles, err := c.sourceRows(SrcRoles)
+	if err != nil {
+		return err
+	}
+	for _, role := range sourceRoles {
+		if role["is_system"] != "1" || role["name"] != lib_i18n.WrapKey("perm_role_project_admin") {
+			continue
+		}
+		query := "SELECT id FROM " + define.TableRoles + " WHERE admin_id=$1 AND workspace_id=$2 AND scope='project' AND is_system=1 AND name=$3"
+		rows, err := msql.RawValues(define.Postgres, query, c.tx, c.adminId, c.newWsId, role["name"])
+		if err != nil {
+			logs.Error("sql:%s err:%s", query, err.Error())
+			return err
+		}
+		if len(rows) != 1 {
+			return ErrFieldEditPolicyInvalid
+		}
+		roleMap[cast.ToInt(role["id"])] = cast.ToInt(rows[0]["id"])
+	}
+
+	for _, kind := range []string{"builtin", "custom"} {
+		source, table, column := SrcWorkspaceFieldConfigs, define.TableWorkItemFieldConfigs, "field_key"
+		if kind == "custom" {
+			source, table, column = SrcWorkspaceCustomFields, define.TableCustomFields, "id"
+		}
+		rows, err := c.sourceRows(source)
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			// 旧离线模板包没有授权字段，按本次已确认的升级默认全部角色处理。
+			if row["edit_scope"] == "" {
+				continue
+			}
+			if row["edit_scope"] != "all" && row["edit_scope"] != "roles" {
+				return ErrFieldEditPolicyInvalid
+			}
+			ids, err := parsePgIntArray(row["edit_role_ids"])
+			if err != nil {
+				return err
+			}
+			mapped := []int{}
+			for _, oldId := range ids {
+				newId := roleMap[oldId]
+				if newId == 0 {
+					return ErrFieldEditPolicyInvalid
+				}
+				mapped = append(mapped, newId)
+			}
+			value := any(row["field_key"])
+			if kind == "custom" {
+				value = c.mappings.customFields[cast.ToInt(row["id"])]
+			}
+			query := "UPDATE " + table + " SET edit_scope=$1,edit_role_ids=$2 WHERE admin_id=$3 AND workspace_id=$4 AND type_key=$5 AND " + column + "=$6"
+			if _, err = msql.RawExec(define.Postgres, query, c.tx, row["edit_scope"], pq.Array(mapped), c.adminId, c.newWsId, row["type_key"], value); err != nil {
+				logs.Error("sql:%s err:%s", query, err.Error())
+				return err
+			}
+		}
+	}
+	return nil
 }

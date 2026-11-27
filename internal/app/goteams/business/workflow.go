@@ -333,6 +333,15 @@ func DeleteStatus(model DeleteStatusModel) error {
 	if cast.ToInt(statuses[0]["is_default"]) == builtinStatusFlag {
 		return ErrBuiltinWorkflowItem
 	}
+	if model.TypeKey == define.TypeKeyRequirement {
+		references, err := statusActionRows(tx, "SELECT id FROM "+define.TableWorkspaceSettings+" WHERE admin_id=$1 AND workspace_id=$2 AND ($3=ANY(string_to_array(NULLIF(requirement_start_status_ids,''), ',')::INTEGER[]) OR $3=ANY(string_to_array(NULLIF(requirement_end_status_ids,''), ',')::INTEGER[]))", model.AdminId, model.WsId, model.StatusId)
+		if err != nil {
+			return err
+		}
+		if len(references) > 0 {
+			return ErrWorkItemTimeStatusReferenced
+		}
+	}
 	if workspaceType == define.WorkspaceTypeIssue && model.TypeKey == define.TypeKeyRequirement {
 		if _, err = statusActionExec(tx, "DELETE FROM "+define.TableWorkspaceStatusActionMappings+statusActionScope+statusActionType+
 			" AND (source_status_id=$3 OR target_status_id=$3)", model.AdminId, model.WsId, model.StatusId); err != nil {
@@ -391,6 +400,9 @@ func DeleteStatus(model DeleteStatusModel) error {
 	}
 	if err = RemoveDisplaySettingStatusTx(tx, model.AdminId, model.WsId, model.TypeKey, model.StatusId); err != nil {
 		logs.Error("清理状态显示设置失败: %s", err.Error())
+		return err
+	}
+	if err = removeStatusTransitionRulesTx(tx, model.AdminId, model.WsId, model.TypeKey, model.StatusId); err != nil {
 		return err
 	}
 	if err = tx.Commit(); err != nil {

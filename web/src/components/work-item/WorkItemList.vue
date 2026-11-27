@@ -99,7 +99,7 @@
               v-if="canExportActiveWorkItem && canEditActiveWorkItem"
             />
             <a-sub-menu
-              v-if="canEditActiveWorkItem"
+              v-if="fieldEditable(activeTab, 'status')"
               key="status"
               :title="$t('requirement_batchStatus')"
             >
@@ -110,7 +110,7 @@
               >
             </a-sub-menu>
             <a-sub-menu
-              v-if="canEditActiveWorkItem"
+              v-if="fieldEditable(activeTab, 'priority')"
               key="priority"
               :title="$t('requirement_batchPriority')"
             >
@@ -124,7 +124,10 @@
                 >{{ p.label }}</a-menu-item
               >
             </a-sub-menu>
-            <a-menu-item v-if="canEditActiveWorkItem" key="assignee_ids">
+            <a-menu-item
+              v-if="fieldEditable(activeTab, 'assignee')"
+              key="assignee_ids"
+            >
               {{ $t("requirement_batchAssignee") }}
             </a-menu-item>
             <a-menu-divider
@@ -528,12 +531,32 @@
           <span v-else-if="!Number(record.severity_id)">{{
             $t("settings_none")
           }}</span>
-          <PriorityPill
-            v-else
-            :priority="record.severity_id"
-            :label="record.severity_name"
-            :color="record.severity_color"
+          <span v-else>
+            <PriorityPill
+              :priority="record.severity_id"
+              :label="record.severity_name"
+              :color="record.severity_color"
+            />
+          </span>
+        </template>
+        <template v-if="column.key === 'responsible_ids'">
+          <AssigneeSelect
+            v-if="isEditing(record, 'responsible_ids')"
+            :value="record.responsible_ids || []"
+            :members="members"
+            :persist-selection="
+              (value) => saveAssigneesInline(record, value, 'responsible_ids')
+            "
+            :placeholder="$t('workspace_field_responsible')"
+            @cancel="cancelEditing"
+            @click.stop
           />
+          <span v-else>
+            <AssigneeCell
+              :ids="record.responsible_ids"
+              :names="record.responsible_names"
+            />
+          </span>
         </template>
         <template v-if="column.key === 'assignee'">
           <AssigneeSelect
@@ -701,6 +724,9 @@
         <template v-if="column.key === 'createdBy'">{{
           record.creator_name || "-"
         }}</template>
+        <template v-if="column.key === 'startedAt' || column.key === 'endedAt'">
+          {{ formatLocalDate(record[column.dataIndex], true) }}
+        </template>
         <template v-if="column.key === 'createdAt'">{{
           formatLocalDate(record.created_at, true)
         }}</template>

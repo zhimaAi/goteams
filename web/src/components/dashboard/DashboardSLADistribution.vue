@@ -10,67 +10,33 @@
       )
     "
   />
-  <div v-else class="sla-distribution">
-    <svg
-      viewBox="0 0 160 160"
-      role="img"
-      :aria-label="$t('dashboard_chart_sla_distribution')"
-    >
-      <circle
-        cx="80"
-        cy="80"
-        r="62"
-        fill="none"
-        stroke="#eef0f3"
-        stroke-width="18"
-      />
-      <circle
-        v-for="bucket in segments"
-        :key="bucket.stage_id"
-        cx="80"
-        cy="80"
-        r="62"
-        pathLength="100"
-        fill="none"
-        :stroke="bucket.color"
-        stroke-width="18"
-        :stroke-dasharray="`${bucket.percent} ${100 - bucket.percent}`"
-        :stroke-dashoffset="-bucket.offset"
-        transform="rotate(-90 80 80)"
-      />
-      <text x="80" y="80" text-anchor="middle" class="sla-distribution__total">
-        {{ total }}
-      </text>
-      <text x="80" y="99" text-anchor="middle">
-        {{ $t("dashboard_sla_distribution_total") }}
-      </text>
-    </svg>
-    <ul>
-      <li v-for="bucket in segments" :key="bucket.stage_id">
-        <i :style="{ backgroundColor: bucket.color }" />
-        <span>{{
-          $t("dashboard_sla_stage_overdue", { name: bucket.stage_name })
-        }}</span>
-        <strong>{{ bucket.count }}</strong>
-        <small>{{ Number(bucket.percent.toFixed(1)) }}%</small>
-      </li>
-    </ul>
-  </div>
+  <DashboardEChart
+    v-else
+    class="sla-distribution"
+    :option="option"
+    :label="$t('dashboard_chart_sla_distribution')"
+  />
 </template>
 
 <script setup>
+import DashboardEChart from "./DashboardEChart.vue";
 import { computed } from "vue";
 import { Empty } from "ant-design-vue";
-import { slaStageColor } from "./dashboardCharts";
+import { useI18n } from "vue-i18n";
+import { slaStageColor, slaMultipleOverdueColor } from "./dashboardCharts";
 
 const props = defineProps({
   config: { type: Object, required: true },
   result: { type: Object, default: null },
+  byWorkItem: Boolean,
 });
+const { t } = useI18n();
 const distribution = computed(() => props.result?.sla_distribution);
 // Older responses include aggregate buckets without a stage ID.
 const stageBuckets = computed(() =>
-  (distribution.value?.buckets || []).filter((bucket) => bucket.stage_id > 0),
+  (distribution.value?.buckets || []).filter((bucket) =>
+    props.byWorkItem ? bucket.count > 0 : bucket.stage_id > 0,
+  ),
 );
 const total = computed(() =>
   stageBuckets.value.reduce((sum, bucket) => sum + bucket.count, 0),
@@ -84,55 +50,65 @@ const segments = computed(() => {
       ...bucket,
       percent,
       offset,
-      color: slaStageColor(props.config, bucket.stage_id),
+      color:
+        bucket.stage_id > 0
+          ? slaStageColor(props.config, bucket.stage_id)
+          : {
+              multiple: slaMultipleOverdueColor,
+              on_time: "#36cfc9",
+              unknown: "#bfbfbf",
+            }[bucket.key],
     };
     offset += percent;
     return result;
   });
 });
+const option = computed(() => ({
+  aria: { enabled: true },
+  tooltip: { trigger: "item", renderMode: "richText", confine: true },
+  legend: { type: "scroll", top: 0 },
+  title: {
+    text: String(total.value),
+    subtext: t(
+      props.byWorkItem
+        ? "issue_statistics_total"
+        : "dashboard_sla_distribution_total",
+    ),
+    left: "center",
+    top: "45%",
+    textStyle: { fontSize: 24 },
+  },
+  series: [
+    {
+      type: "pie",
+      radius: ["40%", "60%"],
+      center: ["50%", "58%"],
+      label: {
+        show: true,
+        formatter: "{b}\n{c} ({d}%)",
+        fontSize: 11,
+        alignTo: "edge",
+        edgeDistance: 8,
+      },
+      labelLine: { show: true, length: 12, length2: 8 },
+      data: segments.value.map((bucket) => ({
+        name: bucketLabel(bucket),
+        value: bucket.count,
+        itemStyle: { color: bucket.color },
+      })),
+    },
+  ],
+}));
+
+function bucketLabel(bucket) {
+  return bucket.stage_id > 0
+    ? t("dashboard_sla_stage_overdue", { name: bucket.stage_name })
+    : t(`issue_statistics_bucket_${bucket.key}`);
+}
 </script>
 
 <style scoped lang="less">
 .sla-distribution {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 24px;
-  color: #475569;
-  padding: 8px 0;
-
-  svg {
-    width: 160px;
-    max-width: 100%;
-    flex-shrink: 0;
-  }
-  text {
-    font-size: 11px;
-    fill: currentColor;
-  }
-  text.sla-distribution__total {
-    font-size: 25px;
-    font-weight: 700;
-  }
-  ul {
-    display: grid;
-    gap: 8px;
-    padding: 0;
-    margin: 0;
-    list-style: none;
-    flex: 1;
-  }
-  li {
-    display: grid;
-    grid-template-columns: 8px minmax(90px, 1fr) auto auto;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-  }
-  i {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-  }
+  height: 320px;
 }
 </style>

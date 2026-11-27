@@ -262,11 +262,27 @@ func automationConditionBranches(node AutomationFlowNode) []AutomationConditionB
 
 // validateAutomationConditionBranch validates one condition branch and its actions.
 func validateAutomationConditionBranch(branch AutomationConditionBranch) error {
+	if len(branch.Actions) == 0 {
+		return fmt.Errorf("%w: conditional branch is incomplete", ErrAutomationConfigInvalid)
+	}
+	if err := validateAutomationConditionModules(branch.ModuleRelation, branch.Modules); err != nil {
+		return err
+	}
+	for _, action := range branch.Actions {
+		if err := validateAutomationAction(action); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateAutomationConditionModules 供自动化和自动分配共同校验两层条件结构。
+func validateAutomationConditionModules(relation string, modules []AutomationConditionModule) error {
 	invalid := func(message string) error { return fmt.Errorf("%w: %s", ErrAutomationConfigInvalid, message) }
-	if !oneOf(branch.ModuleRelation, "AND", "OR") || len(branch.Modules) == 0 || len(branch.Actions) == 0 {
+	if !oneOf(relation, "AND", "OR") || len(modules) == 0 {
 		return invalid("conditional branch is incomplete")
 	}
-	for _, module := range branch.Modules {
+	for _, module := range modules {
 		if !oneOf(module.Relation, "AND", "OR") || len(module.Conditions) == 0 {
 			return invalid("condition module is incomplete")
 		}
@@ -280,11 +296,6 @@ func validateAutomationConditionBranch(branch AutomationConditionBranch) error {
 			if condition.Operator != "empty" && condition.Operator != "not_empty" && len(condition.Value) == 0 {
 				return invalid("condition value is required")
 			}
-		}
-	}
-	for _, action := range branch.Actions {
-		if err := validateAutomationAction(action); err != nil {
-			return err
 		}
 	}
 	return nil
@@ -696,7 +707,11 @@ func evaluateAutomationModules(branch AutomationConditionBranch, fields map[stri
 	for _, module := range branch.Modules {
 		conditionResults := []bool{}
 		for _, condition := range module.Conditions {
-			matched, skipped := evaluateAutomationCondition(types[condition.FieldKey], condition, fields[condition.FieldKey])
+			actual, exists := fields[condition.FieldKey]
+			if !exists {
+				return false, append(skippedFields, condition.FieldKey)
+			}
+			matched, skipped := evaluateAutomationCondition(types[condition.FieldKey], condition, actual)
 			if skipped {
 				skippedFields = append(skippedFields, condition.FieldKey)
 				continue

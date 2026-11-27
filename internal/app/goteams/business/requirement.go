@@ -36,6 +36,8 @@ var (
 	ErrRequirementRelationInvalid = errors.New("invalid requirement relation")
 	// ErrRequirementAssigneesInvalid indicates that assignees are duplicated, invalid, or outside the workspace.
 	ErrRequirementAssigneesInvalid = errors.New("invalid requirement assignees")
+	// ErrDefectResponsibleInvalid 表示缺陷责任人字段或成员无效。
+	ErrDefectResponsibleInvalid = errors.New("invalid defect responsible members")
 	// ErrRequirementHistoryNotFound indicates the change record does not exist within the work item scope.
 	ErrRequirementHistoryNotFound = errors.New("requirement history not found")
 	// ErrRequirementHistoryNotRestorable indicates the change record carries no restorable description version.
@@ -102,6 +104,23 @@ func validateRequirementAssignees(adminId int, wsId string, assigneeIds []int, k
 	return normalized, nil
 }
 
+func validateDefectResponsible(adminId int, wsId, itemType string, ids, keptIds []int) ([]int, error) {
+	if itemType != define.TypeKeyDefect && len(ids) != 0 {
+		return nil, ErrDefectResponsibleInvalid
+	}
+	normalized, err := validateRequirementAssignees(adminId, wsId, ids, keptIds)
+	if errors.Is(err, ErrRequirementAssigneesInvalid) {
+		return nil, ErrDefectResponsibleInvalid
+	}
+	return normalized, err
+}
+
+// 同时保留离职成员的名称，并按选择顺序和 ID 列表对齐。
+const responsibleNamesSQL = `COALESCE((SELECT jsonb_agg(COALESCE(NULLIF(u.name,''), NULLIF(ru.name,''), '#' || a.id::text) ORDER BY a.ord)
+ FROM unnest(r.responsible_ids) WITH ORDINALITY a(id,ord)
+ LEFT JOIN ` + define.TableUsers + ` u ON u.admin_id=r.admin_id AND u.id=a.id
+ LEFT JOIN ` + define.TableRemovedUsers + ` ru ON ru.admin_id=r.admin_id AND ru.user_id=a.id), '[]'::jsonb)`
+
 func assigneeIDsText(ids []int) string {
 	parts := make([]string, len(ids))
 	for index, id := range ids {
@@ -117,7 +136,7 @@ func normalizeStoredAssigneeIDs(value string) string {
 
 var requirementUpdatableFields = map[string]bool{
 	`title`: true, `description`: true, `description_mode`: true, `priority`: true, `severity_id`: true, `status_id`: true,
-	`parent_id`: true, `assignee_ids`: true, `version_id`: true,
+	`parent_id`: true, `assignee_ids`: true, `responsible_ids`: true, `version_id`: true,
 	`planned_start_date`: true, `planned_end_date`: true,
 	`work_hours`: true,
 }
@@ -183,6 +202,8 @@ type RequirementModel struct {
 	RemainingWorkHours float64
 	OvertimeWorkHours  float64
 	WorkProgress       int
+	StartedAt          int64
+	EndedAt            int64
 	CreatedAt          int64
 	UpdatedAt          int64
 	StatusName         string // DB stores an i18n key, translated by the controller per request language
@@ -201,6 +222,8 @@ type RequirementModel struct {
 	AssigneeNames      []string
 	AssigneeAvatars    []string
 	AssigneeUsernames  []string
+	ResponsibleIds     []int
+	ResponsibleNames   []string
 	HasChildren        bool
 	CustomFields       CustomFieldValues
 }
@@ -308,6 +331,8 @@ func toRequirementModel(row msql.Params) (RequirementModel, error) {
 	model.VersionId = int(number(`version_id`))
 	model.PlannedStartDate = number(`planned_start_date`)
 	model.PlannedEndDate = number(`planned_end_date`)
+	model.StartedAt = number(`started_at`)
+	model.EndedAt = number(`ended_at`)
 	model.CreatedAt = number(`created_at`)
 	model.UpdatedAt = number(`updated_at`)
 	model.AgingStatus = int(number(`aging_status`))
@@ -342,6 +367,14 @@ func toRequirementModel(row msql.Params) (RequirementModel, error) {
 	} {
 		if err := json.Unmarshal([]byte(row[field.column]), field.target); err != nil {
 			return RequirementModel{}, fmt.Errorf(`parse requirement %s: %w`, field.column, err)
+		}
+	}
+	if raw, present := row[`responsible_ids`]; present {
+		if err := json.Unmarshal([]byte(raw), &model.ResponsibleIds); err != nil {
+			return RequirementModel{}, fmt.Errorf(`parse requirement responsible_ids: %w`, err)
+		}
+		if err := json.Unmarshal([]byte(row[`responsible_names`]), &model.ResponsibleNames); err != nil {
+			return RequirementModel{}, fmt.Errorf(`parse requirement responsible_names: %w`, err)
 		}
 	}
 	return model, nil
@@ -575,14 +608,15 @@ func ListRequirements(model ListRequirementsModel) (ListRequirementsModel, error
 	listArgs = append(listArgs, model.Size, (model.Page-1)*model.Size)
 	query := fmt.Sprintf(`SELECT r.id, r.workspace_id, r.parent_id, r.category_id, r.title, r.description, r.type, r.priority, r.status_id, r.created_by, r.template_id, r.template_name,
 		COALESCE(_assignee.assignee_ids, '[]') AS assignee_ids, r.version_id, r.planned_start_date, r.planned_end_date,
-		r.work_hours, r.completed_work_hours, r.created_at, r.updated_at, r.aging_status,
+		r.work_hours, r.completed_work_hours, r.started_at, r.ended_at, r.created_at, r.updated_at, r.aging_status,
 		s.name AS status_name, s.color AS status_color, p.name AS priority_name,
 		p.color AS priority_color, r.severity_id, severity.name AS severity_name, severity.color AS severity_color, COALESCE(u2.name, ru2.name, '') AS creator_name, w.name AS workspace_name,
 		v.name AS version_name, parent.title AS parent_title,
 		COALESCE(_assignee.assignee_names, '[]') AS assignee_names,
 		COALESCE(_assignee.assignee_avatars, '[]') AS assignee_avatars,
-		COALESCE(_assignee.assignee_usernames, '[]') AS assignee_usernames
-		FROM `+fromSQL+`
+		COALESCE(_assignee.assignee_usernames, '[]') AS assignee_usernames,
+        to_jsonb(r.responsible_ids)::text AS responsible_ids, `+responsibleNamesSQL+`::text AS responsible_names
+        FROM `+fromSQL+`
 		LEFT JOIN workspace_statuses s ON s.id = r.status_id AND s.admin_id = r.admin_id AND s.workspace_id = r.workspace_id AND s.type_key = r.type
 		LEFT JOIN workspace_priorities p ON p.id = r.priority AND p.admin_id = r.admin_id AND p.workspace_id = r.workspace_id AND p.type_key = r.type
 		LEFT JOIN `+define.TableWorkspaceSeverities+` severity ON severity.id = r.severity_id AND severity.admin_id = r.admin_id AND severity.workspace_id = r.workspace_id AND r.type = 'defect'
@@ -723,7 +757,7 @@ const (
 func buildWorkItemListSQL(extraColumns, extraJoins, filter, orderBy string) string {
 	return fmt.Sprintf(`SELECT r.id, r.admin_id, r.workspace_id, r.parent_id, r.title, r.description, r.type,
 		r.priority, r.status_id, r.version_id, r.planned_start_date, r.planned_end_date,
-		r.work_hours, r.completed_work_hours, r.comment_count, r.created_by, r.created_at, r.updated_at,
+		r.work_hours, r.completed_work_hours, r.comment_count, r.created_by, r.started_at, r.ended_at, `+workItemTimeVisibilitySQL+`, r.created_at, r.updated_at,
 		w.name AS workspace_name, w.color AS workspace_color,
 		s.name AS status_name, s.color AS status_color, s.sort_order AS status_sort_order,
 		p.name AS priority_name, p.color AS priority_color, r.severity_id, severity.name AS severity_name, severity.color AS severity_color, p.sort_order AS priority_sort_order,
@@ -910,7 +944,7 @@ func getRequirementById(tx *sql.Tx, adminId int, wsId, reqId string) (msql.Param
 	query := fmt.Sprintf(`SELECT r.id, r.admin_id, r.workspace_id, r.parent_id, r.category_id, r.title, r.description, r.description_mode, r.type,
 		r.template_id, r.template_name,
 		r.priority, r.status_id, r.version_id, r.planned_start_date, r.planned_end_date,
-		r.work_hours, r.completed_work_hours, r.comment_count, r.created_by, r.created_at, r.updated_at,
+		r.work_hours, r.completed_work_hours, r.comment_count, r.created_by, r.started_at, r.ended_at, r.created_at, r.updated_at,
 		s.name AS status_name, s.color AS status_color, p.name AS priority_name,
 		p.color AS priority_color, r.severity_id, severity.name AS severity_name, severity.color AS severity_color, COALESCE(u2.name, ru2.name, '') AS creator_name,
 		v.name AS version_name, parent.title AS parent_title,
@@ -918,9 +952,10 @@ func getRequirementById(tx *sql.Tx, adminId int, wsId, reqId string) (msql.Param
 		COALESCE(_assignee.assignee_ids, '[]') AS assignee_ids,
 		COALESCE(_assignee.assignee_names, '[]') AS assignee_names,
 		COALESCE(_assignee.assignee_avatars, '[]') AS assignee_avatars,
-		COALESCE(_assignee.assignee_usernames, '[]') AS assignee_usernames
-		FROM requirements r
-		LEFT JOIN workspace_statuses s ON s.id = r.status_id AND s.admin_id = r.admin_id
+		COALESCE(_assignee.assignee_usernames, '[]') AS assignee_usernames,
+        to_jsonb(r.responsible_ids)::text AS responsible_ids, ` + responsibleNamesSQL + `::text AS responsible_names
+        FROM requirements r
+        LEFT JOIN workspace_statuses s ON s.id = r.status_id AND s.admin_id = r.admin_id
 			AND s.workspace_id = r.workspace_id AND s.type_key = r.type
 		LEFT JOIN workspace_priorities p ON p.id = r.priority AND p.admin_id = r.admin_id
 		LEFT JOIN ` + define.TableWorkspaceSeverities + ` severity ON severity.id = r.severity_id AND severity.admin_id = r.admin_id AND severity.workspace_id = r.workspace_id AND r.type = 'defect'
@@ -1159,6 +1194,7 @@ type CreateRequirementModel struct {
 	DescriptionMode    string
 	Type               string
 	SeverityId         *int
+	ResponsibleIds     []int
 	Priority           *int // nil means not provided; filled by the project default priority
 	StatusId           int
 	TemplateId         int
@@ -1199,6 +1235,10 @@ func CreateRequirement(model CreateRequirementModel) (CreateRequirementModel, er
 		return CreateRequirementModel{}, err
 	}
 	model.AssigneeIds = assigneeIds
+	model.ResponsibleIds, err = validateDefectResponsible(model.AdminId, wsId, model.Type, model.ResponsibleIds, nil)
+	if err != nil {
+		return CreateRequirementModel{}, err
+	}
 	if err := validate.ValidatePlannedDateRange(model.PlannedStartDate, model.PlannedEndDate); err != nil {
 		return CreateRequirementModel{}, err
 	}
@@ -1220,8 +1260,7 @@ func CreateRequirement(model CreateRequirementModel) (CreateRequirementModel, er
 		templateName = template.Item.Name
 		createTemplate = &template.Item
 	}
-	// 缺陷没有预计工时：直接归零，不报错，免得调用方为了建一条缺陷先去猜这条规则。
-	if model.Type != define.TypeKeyRequirement {
+	if model.Type != define.TypeKeyRequirement && model.Type != define.TypeKeyDefect {
 		model.EstimatedWorkHours = 0
 	}
 	if err := validate.ValidateRequirementWorkHours(model.EstimatedWorkHours); err != nil {
@@ -1320,12 +1359,12 @@ func CreateRequirement(model CreateRequirementModel) (CreateRequirementModel, er
 	rows, err := msql.RawValues(define.Postgres, `INSERT INTO requirements
 		(workspace_id, parent_id, category_id, title, description, description_mode, type, priority,
 		 status_id, assignee_ids, version_id, planned_start_date, planned_end_date, work_hours,
-		 created_by, admin_id, created_at, updated_at, completed_at, template_id, template_name, severity_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17,$18,$19,$20,$21) RETURNING id`, tx,
+		 created_by, admin_id, created_at, updated_at, completed_at, template_id, template_name, severity_id, responsible_ids)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17,$18,$19,$20,$21,$22) RETURNING id`, tx,
 		model.WorkspaceId, model.ParentId, model.CategoryId, model.Title, model.Description,
 		model.DescriptionMode, model.Type, priorityID, model.StatusId, pq.Array(model.AssigneeIds),
 		model.VersionId, model.PlannedStartDate, model.PlannedEndDate, model.EstimatedWorkHours,
-		model.UserId, model.AdminId, now, completedAt, model.TemplateId, templateName, severityId)
+		model.UserId, model.AdminId, now, completedAt, model.TemplateId, templateName, severityId, pq.Array(model.ResponsibleIds))
 	if err != nil {
 		logs.Error("create requirement failed, err:%s", err.Error())
 		return CreateRequirementModel{}, err
@@ -1336,6 +1375,15 @@ func CreateRequirement(model CreateRequirementModel) (CreateRequirementModel, er
 	model.Id = cast.ToInt(rows[0][`id`])
 	if err := writeCustomFieldValues(tx, model.AdminId, model.Id, customFields.Items, model.CustomFields); err != nil {
 		return CreateRequirementModel{}, err
+	}
+	if model.Source == define.SourceUser && model.Type == define.TypeKeyRequirement && len(model.AssigneeIds) == 0 {
+		assigned, assignErr := applyAutoAssignmentTx(tx, model.AdminId, model.WorkspaceId, model.Id)
+		if assignErr != nil {
+			return CreateRequirementModel{}, assignErr
+		}
+		if len(assigned) > 0 {
+			model.AssigneeIds = assigned
+		}
 	}
 	if model.PlanningId > 0 {
 		if err := linkRequirementToPlanning(tx, model.AdminId, model.WorkspaceId, model.PlanningId, model.Id); err != nil {
@@ -1417,8 +1465,79 @@ func cleanupCreatedRequirement(adminId int, wsId string, requirementId int) {
 }
 
 // UpdateRequirement updates a user-sourced work item.
-func UpdateRequirement(adminId int, wsId, reqId string, updates map[string]any, customFields map[string]any, userId int, imageFileIds []int) error {
-	return updateRequirementWithTransaction(adminId, wsId, reqId, updates, customFields, userId, imageFileIds, define.SourceUser, ``)
+// UpdateRequirementModel 是人工字段更新的完整业务输入，未提交字段保持 nil。
+type UpdateRequirementModel struct {
+	AdminId            int
+	UserId             int
+	WorkspaceId        int
+	ItemId             int
+	Title              *string
+	Description        *string
+	DescriptionMode    *string
+	SeverityId         *int
+	Priority           *int
+	StatusId           *int
+	ParentId           *int
+	AssigneeIds        *[]int
+	ResponsibleIds     *[]int
+	VersionId          *int
+	PlannedStartDate   *int64
+	PlannedEndDate     *int64
+	EstimatedWorkHours *float64
+	CustomFields       CustomFieldValues
+	ImageFileIds       []int
+}
+
+func (model UpdateRequirementModel) columns() map[string]any {
+	updates := map[string]any{}
+	if model.Title != nil {
+		updates[`title`] = *model.Title
+	}
+	if model.Description != nil {
+		updates[`description`] = *model.Description
+	}
+	if model.DescriptionMode != nil {
+		updates[`description_mode`] = *model.DescriptionMode
+	}
+	if model.SeverityId != nil {
+		updates[`severity_id`] = *model.SeverityId
+	}
+	if model.Priority != nil {
+		updates[`priority`] = *model.Priority
+	}
+	if model.StatusId != nil {
+		updates[`status_id`] = *model.StatusId
+	}
+	if model.ParentId != nil {
+		updates[`parent_id`] = *model.ParentId
+	}
+	if model.AssigneeIds != nil {
+		updates[`assignee_ids`] = *model.AssigneeIds
+	}
+	if model.ResponsibleIds != nil {
+		updates[`responsible_ids`] = *model.ResponsibleIds
+	}
+	if model.VersionId != nil {
+		updates[`version_id`] = *model.VersionId
+	}
+	if model.PlannedStartDate != nil {
+		updates[`planned_start_date`] = *model.PlannedStartDate
+	}
+	if model.PlannedEndDate != nil {
+		updates[`planned_end_date`] = *model.PlannedEndDate
+	}
+	if model.EstimatedWorkHours != nil {
+		updates[`work_hours`] = *model.EstimatedWorkHours
+	}
+	return updates
+}
+
+// UpdateRequirement 沿用现有事务、历史与通知，只更新实际提交字段。
+func UpdateRequirement(model UpdateRequirementModel) error {
+	if err := CheckWorkItemFieldEdit(CheckWorkItemFieldEditModel{AdminId: model.AdminId, UserId: model.UserId, WsId: cast.ToString(model.WorkspaceId), ItemId: model.ItemId, Fields: workItemUpdateFieldKeys(model.columns(), model.CustomFields, model.ImageFileIds)}); err != nil {
+		return err
+	}
+	return updateRequirementWithTransaction(model.AdminId, cast.ToString(model.WorkspaceId), cast.ToString(model.ItemId), model.columns(), model.CustomFields, model.UserId, model.ImageFileIds, define.SourceUser, ``)
 }
 
 // UpdateRequirementWithSource updates a work item with an explicit source; an automation source does not trigger rules again.
@@ -1517,6 +1636,11 @@ func updateRequirement(tx *sql.Tx, adminId int, wsId, reqId string, updates map[
 	if len(oldData) == 0 {
 		return ErrRequirementNotFound
 	}
+	if source == define.SourceUser {
+		if err := checkWorkItemFieldEditTx(tx, CheckWorkItemFieldEditModel{AdminId: adminId, UserId: userId, WsId: wsId, ItemId: cast.ToInt(reqId), Fields: workItemUpdateFieldKeys(updates, customFields, imageFileIds)}); err != nil {
+			return err
+		}
+	}
 	oldAssigneeIds := parseStoredAssigneeIDs(oldData[`assignee_ids`])
 	if rawMode, ok := updates[`description_mode`]; ok {
 		if err := validate.ValidateRequirementDescriptionMode(cast.ToString(rawMode)); err != nil {
@@ -1552,8 +1676,7 @@ func updateRequirement(tx *sql.Tx, adminId int, wsId, reqId string, updates map[
 		return err
 	}
 	if _, ok := updates[`work_hours`]; ok {
-		// 与新建侧同一条规则：非需求类型没有预计工时，归零而不是报错。
-		if cast.ToString(oldData[`type`]) != define.TypeKeyRequirement {
+		if itemType := oldData[`type`]; itemType != define.TypeKeyRequirement && itemType != define.TypeKeyDefect {
 			updates[`work_hours`] = 0
 		}
 		if err := validate.ValidateRequirementWorkHours(cast.ToFloat64(updates[`work_hours`])); err != nil {
@@ -1592,6 +1715,17 @@ func updateRequirement(tx *sql.Tx, adminId int, wsId, reqId string, updates map[
 			}
 		}
 	}
+	if raw, ok := updates[`responsible_ids`]; ok {
+		ids, valid := raw.([]int)
+		if !valid || oldData[`type`] != define.TypeKeyDefect {
+			return ErrDefectResponsibleInvalid
+		}
+		normalized, err := validateDefectResponsible(adminId, wsId, oldData[`type`], ids, parseStoredAssigneeIDs(oldData[`responsible_ids`]))
+		if err != nil {
+			return err
+		}
+		updates[`responsible_ids`] = normalized
+	}
 	if rawSeverity, ok := updates[`severity_id`]; ok {
 		severityId := cast.ToInt(rawSeverity)
 		if _, err := resolveSeverityId(tx, adminId, cast.ToInt(wsId), oldData[`type`], &severityId); err != nil {
@@ -1620,7 +1754,7 @@ func updateRequirement(tx *sql.Tx, adminId int, wsId, reqId string, updates map[
 		if !requirementUpdatableFields[k] {
 			continue
 		}
-		if k == `assignee_ids` {
+		if k == `assignee_ids` || k == `responsible_ids` {
 			if ids, ok := v.([]int); ok {
 				data[k] = pq.Array(ids)
 			}
@@ -1657,9 +1791,9 @@ func updateRequirement(tx *sql.Tx, adminId int, wsId, reqId string, updates map[
 		}
 		oldVal := cast.ToString(oldData[field])
 		newValText := cast.ToString(newVal)
-		if field == `assignee_ids` {
+		if field == `assignee_ids` || field == `responsible_ids` {
 			oldVal = normalizeStoredAssigneeIDs(oldVal)
-			newValText = assigneeIDsText(updates[`assignee_ids`].([]int))
+			newValText = assigneeIDsText(updates[field].([]int))
 		}
 		if oldVal == newValText {
 			continue // Value unchanged, skip.
@@ -1798,6 +1932,11 @@ func updateRequirement(tx *sql.Tx, adminId int, wsId, reqId string, updates map[
 			}
 		}
 	}
+	if _, changed := updates["status_id"]; changed {
+		if err = recordSatisfactionTx(tx, adminId, cast.ToInt(wsId), cast.ToInt(reqId), cast.ToInt(oldData["status_id"])); err != nil {
+			return err
+		}
+	}
 	// Bind rich-text assets uploaded before this save.
 	if len(imageFileIds) > 0 {
 		if e := BindPendingEnterpriseFiles(adminId, cast.ToInt(reqId), cast.ToString(oldData[`type`]), cast.ToString(oldData[`title`]), imageFileIds); e != nil {
@@ -1845,7 +1984,7 @@ func updateRequirementRow(tx *sql.Tx, adminId int, wsId, reqId string, data msql
 			}
 		}
 		args = append(args, pq.Array(finalIds))
-		assignments = append(assignments, completionAssignment(statusArg, timeArg, len(args)))
+		assignments = append(assignments, completionAssignment(statusArg, timeArg, len(args)), workItemTimeAssignments(statusArg))
 	}
 	adminArg := len(args) + 1
 	workspaceArg := adminArg + 1
@@ -1861,7 +2000,24 @@ func updateRequirementRow(tx *sql.Tx, adminId int, wsId, reqId string, data msql
 }
 
 // BatchUpdateRequirements updates work-item fields in batch within a single transaction.
-func BatchUpdateRequirements(adminId int, wsId string, ids []int, field string, value any, userId int) error {
+// BatchUpdateRequirementsModel 是单字段批量修改的业务输入。
+type BatchUpdateRequirementsModel struct {
+	AdminId     int
+	UserId      int
+	WorkspaceId int
+	Ids         []int
+	Field       string
+	Value       int
+	AssigneeIds []int
+}
+
+// BatchUpdateRequirements 逐个校验目标后原子更新整个手动批次。
+func BatchUpdateRequirements(model BatchUpdateRequirementsModel) error {
+	adminId, userId, wsId, ids, field := model.AdminId, model.UserId, cast.ToString(model.WorkspaceId), model.Ids, model.Field
+	var value any = model.Value
+	if field == "assignee_ids" {
+		value = model.AssigneeIds
+	}
 	if err := validate.ValidateRequirementBatchUpdate(field, value); err != nil {
 		return err
 	}
@@ -1876,6 +2032,11 @@ func BatchUpdateRequirements(adminId int, wsId string, ids []int, field string, 
 		}
 	} else {
 		valueInt = value.(int)
+	}
+	for _, id := range ids {
+		if err := CheckWorkItemFieldEdit(CheckWorkItemFieldEditModel{AdminId: adminId, UserId: userId, WsId: wsId, ItemId: id, Fields: workItemUpdateFieldKeys(map[string]any{field: value}, nil, nil)}); err != nil {
+			return err
+		}
 	}
 	beforeSnapshots := make(map[int]*AutomationWorkItemSnapshot, len(ids))
 	for _, id := range ids {
@@ -1914,6 +2075,11 @@ func BatchUpdateRequirements(adminId int, wsId string, ids []int, field string, 
 		return ErrRequirementNotFound
 	}
 
+	for _, row := range rows {
+		if err := checkWorkItemFieldEditTx(tx, CheckWorkItemFieldEditModel{AdminId: adminId, UserId: userId, WsId: wsId, ItemId: cast.ToInt(row["id"]), Fields: workItemUpdateFieldKeys(map[string]any{field: value}, nil, nil)}); err != nil {
+			return err
+		}
+	}
 	types := make(map[string]bool)
 	for _, row := range rows {
 		types[row[`type`]] = true
@@ -1982,7 +2148,7 @@ func BatchUpdateRequirements(adminId int, wsId string, ids []int, field string, 
 			return finalErr
 		}
 		updateArgs = append(updateArgs, pq.Array(finalIds))
-		updateSQL = strings.Replace(updateSQL, `SET status_id = $1,`, `SET `+completionAssignment(1, 2, 6)+`, status_id = $1,`, 1)
+		updateSQL = strings.Replace(updateSQL, `SET status_id = $1,`, `SET `+completionAssignment(1, 2, 6)+`, `+workItemTimeAssignments(1)+`, status_id = $1,`, 1)
 	}
 	if _, err = msql.RawExec(define.Postgres, updateSQL, tx, updateArgs...); err != nil {
 		logs.Error("BatchUpdateRequirements update failed, err:%s", err.Error())
@@ -2011,6 +2177,11 @@ func BatchUpdateRequirements(adminId int, wsId string, ids []int, field string, 
 			newValue = assigneeIDsText(assigneeIds)
 			if oldValue == newValue {
 				continue
+			}
+		}
+		if field == "status_id" {
+			if err = recordSatisfactionTx(tx, adminId, cast.ToInt(wsId), cast.ToInt(row["id"]), cast.ToInt(row["status_id"])); err != nil {
+				return err
 			}
 		}
 		changedIDs = append(changedIDs, cast.ToInt(row[`id`]))
@@ -2211,6 +2382,9 @@ func DeleteRequirements(model DeleteRequirementsModel) error {
 	if err != nil {
 		return err
 	}
+	if err = clearSatisfactionItemsTx(tx, model.AdminId, model.WorkspaceId, ids); err != nil {
+		return err
+	}
 	if err = clearSLAItemsTx(tx, model.AdminId, model.WorkspaceId, ids); err != nil {
 		return err
 	}
@@ -2298,7 +2472,7 @@ func DeleteRequirement(adminId int, wsId, reqId string, userId int) error {
 
 // UpdateRequirementStatus changes a requirement's status (admin_id isolated, records history).
 func UpdateRequirementStatus(adminId int, wsId, reqId string, newStatusId int, userId int) error {
-	return UpdateRequirement(adminId, wsId, reqId, map[string]any{`status_id`: newStatusId}, nil, userId, nil)
+	return UpdateRequirement(UpdateRequirementModel{AdminId: adminId, UserId: userId, WorkspaceId: cast.ToInt(wsId), ItemId: cast.ToInt(reqId), StatusId: &newStatusId})
 }
 
 // ListAvailableStatusIDs returns all status IDs of that type under a workspace; the current version does not restrict status transitions.

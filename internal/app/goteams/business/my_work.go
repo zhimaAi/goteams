@@ -26,6 +26,10 @@ type CrossWorkspaceWorkItemModel struct {
 	CompletedWorkHours float64
 	CommentCount       *int
 	CreatedBy          *int
+	StartedAtEnabled   bool
+	EndedAtEnabled     bool
+	StartedAt          int64
+	EndedAt            int64
 	CreatedAt          int64
 	UpdatedAt          int64
 	WorkspaceName      string
@@ -141,6 +145,22 @@ func toCrossWorkspaceWorkItems(rows []msql.Params) ([]CrossWorkspaceWorkItemMode
 				return nil, fmt.Errorf("parse cross-workspace created_by: %w", err)
 			}
 			item.CreatedBy = &value
+		}
+		item.StartedAt, err = strconv.ParseInt(row["started_at"], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse cross-workspace started_at: %w", err)
+		}
+		item.EndedAt, err = strconv.ParseInt(row["ended_at"], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse cross-workspace ended_at: %w", err)
+		}
+		item.StartedAtEnabled, err = strconv.ParseBool(row["started_at_enabled"])
+		if err != nil {
+			return nil, err
+		}
+		item.EndedAtEnabled, err = strconv.ParseBool(row["ended_at_enabled"])
+		if err != nil {
+			return nil, err
 		}
 		item.CreatedAt, err = strconv.ParseInt(row["created_at"], 10, 64)
 		if err != nil {

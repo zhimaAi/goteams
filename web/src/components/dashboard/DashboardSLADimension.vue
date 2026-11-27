@@ -12,7 +12,7 @@
       "
     />
     <template v-else>
-      <p v-if="!byPriority" class="sla-dimension__total">
+      <p v-if="!hasStageSeries" class="sla-dimension__total">
         {{ $t("dashboard_sla_dimension_total", { count: total }) }}
       </p>
       <dl class="sla-dimension__groups">
@@ -28,16 +28,18 @@
               :key="series.stage_id || series.metric_type"
               class="sla-dimension__series"
             >
-              <span v-if="byPriority">{{ seriesName(series) }}</span>
-              <div class="sla-dimension__track" aria-hidden="true">
-                <div
-                  v-if="series.rate != null"
-                  :style="{
-                    width: `${series.rate}%`,
-                    backgroundColor: seriesColor(group, series),
-                  }"
-                />
-              </div>
+              <span
+                v-if="hasStageSeries"
+                class="sla-dimension__label"
+                :title="seriesName(series)"
+                >{{ seriesName(series) }}</span
+              >
+              <DashboardEChart
+                class="sla-dimension__track"
+                :option="trackOption(group, series)"
+                :label="`${groupName(group)} · ${seriesName(series)} · ${rateText(series)}`"
+                :title="$t('dashboard_sla_trend_sample', series)"
+              />
               <span
                 :title="$t('dashboard_sla_trend_sample', series)"
                 :aria-label="
@@ -61,6 +63,7 @@
 </template>
 
 <script setup>
+import DashboardEChart from "./DashboardEChart.vue";
 import { computed } from "vue";
 import { Empty } from "ant-design-vue";
 import { useDashboardI18n } from "@/composables/useDashboardI18n";
@@ -69,9 +72,11 @@ import { slaCategoryColor, slaStageColor } from "./dashboardCharts";
 const props = defineProps({
   config: { type: Object, required: true },
   result: { type: Object, default: null },
+  stageSeries: Boolean,
 });
 const { t } = useDashboardI18n();
 const byPriority = computed(() => props.config.sla_dimension === "priority");
+const hasStageSeries = computed(() => byPriority.value || props.stageSeries);
 const dimension = computed(() => props.result?.sla_dimension);
 const groups = computed(() => dimension.value?.groups || []);
 const total = computed(() =>
@@ -80,6 +85,29 @@ const total = computed(() =>
     0,
   ),
 );
+
+function trackOption(group, series) {
+  return {
+    animation: false,
+    grid: { left: 0, right: 0, top: 0, bottom: 0 },
+    xAxis: { type: "value", min: 0, max: 100, show: false },
+    yAxis: { type: "category", data: [""], show: false },
+    series: [
+      {
+        type: "bar",
+        barWidth: 8,
+        showBackground: true,
+        backgroundStyle: { color: "#eef0f3", borderRadius: 5 },
+        data: [
+          {
+            value: series.rate ?? 0,
+            itemStyle: { color: seriesColor(group, series), borderRadius: 5 },
+          },
+        ],
+      },
+    ],
+  };
+}
 
 function groupName(group) {
   return (
@@ -95,7 +123,7 @@ function seriesName(series) {
 }
 
 function seriesColor(group, series) {
-  return byPriority.value
+  return hasStageSeries.value
     ? slaStageColor(props.config, series.stage_id)
     : slaCategoryColor(props.config, group.id);
 }
@@ -147,7 +175,19 @@ function rateText(series) {
     white-space: nowrap;
   }
 
+  &__label {
+    flex: 0 0 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__series > span:last-child {
+    flex: 0 0 100px;
+    text-align: right;
+  }
+
   &__track {
+    width: 0;
     flex: 1;
     min-width: 12px;
     height: 8px;

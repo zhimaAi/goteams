@@ -56,13 +56,12 @@ export function useCreateWorkItemSubmit(ctx) {
       fieldValue("estimated_work_hours", ctx.estimatedWorkHours.value, 0),
     );
     if (
-      ctx.type.value === "requirement" &&
-      (!Number.isFinite(estimatedWorkHours) ||
-        estimatedWorkHours < 0 ||
-        estimatedWorkHours > 99999999.99 ||
-        Math.abs(
-          estimatedWorkHours * 100 - Math.round(estimatedWorkHours * 100),
-        ) > 0.000001)
+      !Number.isFinite(estimatedWorkHours) ||
+      estimatedWorkHours < 0 ||
+      estimatedWorkHours > 99999999.99 ||
+      Math.abs(
+        estimatedWorkHours * 100 - Math.round(estimatedWorkHours * 100),
+      ) > 0.000001
     ) {
       message.warning(ctx.t("requirement_workHoursInvalid"));
       return;
@@ -91,11 +90,19 @@ export function useCreateWorkItemSubmit(ctx) {
                 fieldValue(
                   "category",
                   ctx.categoryId.value,
-                  Number(ctx.returnCategoryQuery.value) || 0,
+                  // Child requirements keep their parent category even when hidden.
+                  Number(ctx.parentId.value) > 0
+                    ? ctx.categoryId.value
+                    : Number(ctx.returnCategoryQuery.value) || 0,
                 ),
               ) || 0
             : 0,
         assignee_ids: fieldValue("assignee", ctx.assigneeIds.value, []),
+        responsible_ids: fieldValue(
+          "responsible_ids",
+          ctx.responsibleIds.value,
+          undefined,
+        ),
         version_id: fieldValue("version", ctx.versionId.value, 0) || 0,
         planned_start_date: plannedStartDate
           ? plannedStartDate.startOf("day").unix()
@@ -103,8 +110,7 @@ export function useCreateWorkItemSubmit(ctx) {
         planned_end_date: plannedEndDate
           ? plannedEndDate.startOf("day").unix()
           : 0,
-        estimated_work_hours:
-          ctx.type.value === "requirement" ? estimatedWorkHours : 0,
+        estimated_work_hours: estimatedWorkHours,
         custom_fields: ctx.customFieldPayload(),
         planning_id: ctx.planningId.value,
       });
@@ -141,6 +147,7 @@ export function useCreateWorkItemSubmit(ctx) {
       ctx.description.value = "";
       ctx.imageFileIds.value = [];
       ctx.parentId.value = undefined;
+      ctx.responsibleIds.value = [];
       ctx.severityId.value = ctx.severityOptions.value.find(
         (item) => Number(item.is_default) === 1,
       )?.id;

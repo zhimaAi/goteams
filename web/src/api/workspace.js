@@ -1525,3 +1525,12 @@ export function saveWorkspaceStatusAction(wsId, resource, id, data) {
     data,
   });
 }
+
+export function saveFieldEditRoles(wsId, type, data) {
+  return request({
+    url: `/api/workspaces/${wsId}/fields/edit-roles`,
+    method: "put",
+    params: { type },
+    data,
+  });
+}

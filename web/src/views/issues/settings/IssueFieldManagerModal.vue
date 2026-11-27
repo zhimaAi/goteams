@@ -87,6 +87,8 @@ const MANAGED_EXCLUDED_KEYS = new Set([
   "title",
   "description",
   "id",
+  "started_at",
+  "ended_at",
   "created_at",
   "created_by",
   "work_progress",

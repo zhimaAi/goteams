@@ -11,19 +11,26 @@ export function listPipelineTaskDocuments(taskId) {
 
 // One document's metadata. Text-like documents come back with the body already
 // inlined (content), binary ones only carry metadata and need a signed link.
-export function getPipelineDocument(documentId) {
+export function getPipelineDocument(documentId, options = {}) {
   return request({
     url: `/api/pipeline-documents/${documentId}`,
     method: "GET",
+    signal: options.signal,
+    silent: options.silent,
   });
 }
 
-// A 2-hour signed link. Requested only when the user opens or downloads the file,
-// so the link never sits in the page long enough to expire.
-export function getPipelineDocumentLink(documentId, disposition = "inline") {
+// Request a fresh 2-hour signature when viewing, downloading or retrying an image.
+export function getPipelineDocumentLink(
+  documentId,
+  disposition = "inline",
+  options = {},
+) {
   return request({
     url: `/api/pipeline-documents/${documentId}/link`,
     method: "GET",
     params: { disposition },
+    signal: options.signal,
+    silent: options.silent,
   });
 }

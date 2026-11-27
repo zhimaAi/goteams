@@ -128,15 +128,16 @@ func ListPermissions(c *gin.Context) {
 				return
 			}
 			if issueWorkspace {
+				projectGroupKeys = append(projectGroupKeys, permission.GroupKeyIssueStatistics)
 				automationIndex := slices.Index(projectGroupKeys, permission.GroupKeyAutomation)
-				projectGroupKeys = slices.Insert(projectGroupKeys, automationIndex+1, permission.GroupKeySLA)
+				projectGroupKeys = slices.Insert(projectGroupKeys, automationIndex+1, permission.GroupKeySLA, permission.GroupKeyWarning, permission.GroupKeyAutoAssignment, permission.GroupKeySatisfaction)
 			}
 			enabledApplications, err := business.GetEnabledApplicationKeys(adminID, wsID)
 			if err != nil {
 				abortInternal(c, lib_i18n.Show(lang, define.MsgError), `permission.applications`, err)
 				return
 			}
-			projectGroupKeys = append(projectGroupKeys, permission.GroupKeyTicket, permission.GroupKeyDashboard)
+			projectGroupKeys = append(projectGroupKeys, permission.GroupKeyTicket, permission.GroupKeyDashboard, permission.GroupKeyReport)
 			projectGroupKeys = slices.DeleteFunc(projectGroupKeys, func(key string) bool {
 				return !business.IsWorkspacePermissionGroupEnabled(key, enabledApplications)
 			})

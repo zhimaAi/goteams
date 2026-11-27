@@ -196,13 +196,15 @@
             v-if="activeDocument.storage_state === 'ready'"
             class="document-view"
           >
-            <div
+            <ConversationMarkdown
               v-if="isMarkdown"
               class="document-markdown message-markdown"
-              v-html="renderedMarkdown"
+              :content="activeDocument.content || ''"
+              :documents="documents"
+              :source-path="activeDocument.rel_path"
               @click="onMarkdownClick"
               @keydown.enter="onMarkdownClick"
-            ></div>
+            />
             <pre v-else-if="isText" class="document-text">{{
               activeDocument.content || ""
             }}</pre>
@@ -255,10 +257,8 @@ import {
   getPipelineDocumentLink,
   listPipelineTaskDocuments,
 } from "@/api/pipelineDocuments";
-import {
-  renderConversationMarkdown,
-  documentIdFromEvent,
-} from "@/components/requirement/conversationMarkdown";
+import { documentIdFromEvent } from "@/components/requirement/conversationMarkdown";
+import ConversationMarkdown from "@/components/requirement/ConversationMarkdown.vue";
 import { useAuthStore } from "@/stores/auth";
 import { formatLocalDate } from "@/utils/date";
 
@@ -428,13 +428,6 @@ const isImage = computed(() =>
 );
 const isPdf = computed(
   () => String(activeDocument.value?.file_ext || "").toLowerCase() === "pdf",
-);
-
-const renderedMarkdown = computed(() =>
-  renderConversationMarkdown(
-    activeDocument.value?.content || "",
-    documents.value,
-  ),
 );
 
 // 上报时间用服务端入库的 updated_at：文档再次上报会刷新它，线上看到的就是最近一次上报时间。

@@ -822,24 +822,9 @@
 </template>
 
 <script setup>
-import {
-  computed,
-  defineComponent,
-  h,
-  markRaw,
-  onBeforeUnmount,
-  onMounted,
-  ref,
-  watch,
-} from "vue";
+import { computed, markRaw, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import dayjs from "dayjs";
-import {
-  DatePicker,
-  Input,
-  InputNumber,
-  Select,
-  message,
-} from "ant-design-vue";
+import { message } from "ant-design-vue";
 import {
   BugOutlined,
   CalendarOutlined,
@@ -862,7 +847,11 @@ import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useLocaleStore } from "@/stores/locale";
-import { filterMembersForField } from "@/utils/customField";
+import {
+  conditionFieldOptions,
+  automationOperatorOptions,
+} from "@/utils/automationConditions";
+import ConditionValue from "./AutomationConditionValue.vue";
 import { formatLocalDate } from "@/utils/date";
 import {
   copyAutomationRule,
@@ -1159,96 +1148,6 @@ const triggerStatusInvalid = computed(() =>
 const hasInvalidReferences = computed(() =>
   automationConfigHasInvalidReferences(ruleConfig.value, metadata.value),
 );
-
-// The condition value component reuses the matching Ant Design input by field type.
-const ConditionValue = defineComponent({
-  props: {
-    modelValue: null,
-    field: Object,
-    operator: String,
-    metadata: Object,
-    triggerType: String,
-    showError: Boolean,
-  },
-  emits: ["update:modelValue"],
-  setup(componentProps, { emit }) {
-    return () => {
-      const field = componentProps.field || {};
-      const options = conditionFieldOptions(
-        field,
-        componentProps.metadata,
-        componentProps.triggerType,
-      );
-      const usesOptions =
-        options.length > 0 ||
-        ["select_single", "select_multi", "user", "user_multi"].includes(
-          field.type,
-        ) ||
-        ["status", "priority", "assignee", "created_by", "version"].includes(
-          field.key,
-        );
-      if (usesOptions)
-        return h(Select, {
-          value: componentProps.modelValue,
-          options: withMissingOption(options, componentProps.modelValue),
-          status:
-            referenceMissing(options, componentProps.modelValue) ||
-            componentProps.showError
-              ? "error"
-              : undefined,
-          mode:
-            ["select_multi", "user_multi"].includes(field.type) ||
-            ["in", "not_in"].includes(componentProps.operator)
-              ? "multiple"
-              : undefined,
-          style: "width:100%",
-          "onUpdate:value": (value) => emit("update:modelValue", value),
-        });
-      if (["number", "numeric"].includes(field.type))
-        return h(InputNumber, {
-          value: componentProps.modelValue,
-          status: componentProps.showError ? "error" : undefined,
-          style: "width:100%",
-          "onUpdate:value": (value) => emit("update:modelValue", value),
-        });
-      if (field.type === "datetime") {
-        const valid = datetimeValueValid(componentProps.modelValue);
-        return h(DatePicker, {
-          value: valid ? dayjs(componentProps.modelValue) : null,
-          showTime: { format: "HH:mm:ss" },
-          format: "YYYY-MM-DD HH:mm:ss",
-          status:
-            componentProps.showError ||
-            (conditionValuePresent(componentProps.modelValue) && !valid)
-              ? "error"
-              : undefined,
-          style: "width:100%",
-          onChange: (value) =>
-            emit(
-              "update:modelValue",
-              value ? value.format("YYYY-MM-DD HH:mm:ss") : null,
-            ),
-        });
-      }
-      if (field.type === "date")
-        return h(DatePicker, {
-          value: componentProps.modelValue
-            ? dayjs.unix(Number(componentProps.modelValue))
-            : null,
-          status: componentProps.showError ? "error" : undefined,
-          style: "width:100%",
-          onChange: (value) =>
-            emit("update:modelValue", value ? value.unix() : null),
-        });
-      return h(Input, {
-        value: componentProps.modelValue,
-        status: componentProps.showError ? "error" : undefined,
-        placeholder: t("automation_value"),
-        "onUpdate:value": (value) => emit("update:modelValue", value),
-      });
-    };
-  },
-});
 
 function option(value, key) {
   return { value, label: t(key) };
@@ -1751,101 +1650,9 @@ function resetCondition(condition) {
   condition.value = undefined;
 }
 function operatorOptions(key, currentOperator) {
-  const type = fieldByKey(key)?.type;
-  const byType = {
-    text: ["contains", "not_contains", "is", "is_not", "empty", "not_empty"],
-    textarea: [
-      "contains",
-      "not_contains",
-      "is",
-      "is_not",
-      "empty",
-      "not_empty",
-    ],
-    number: ["eq", "neq", "gt", "gte", "lt", "lte", "empty", "not_empty"],
-    date: [
-      "before",
-      "before_eq",
-      "after",
-      "after_eq",
-      "is",
-      "is_not",
-      "empty",
-      "not_empty",
-    ],
-    user: ["is", "is_not", "empty", "not_empty"],
-    select_single: ["is", "is_not", "in", "not_in", "empty", "not_empty"],
-    user_multi: [
-      "contains_any",
-      "contains_all",
-      "contains_none",
-      "empty",
-      "not_empty",
-    ],
-    select_multi: [
-      "contains_any",
-      "contains_all",
-      "contains_none",
-      "empty",
-      "not_empty",
-    ],
-  };
-  const operators =
-    type === "user" &&
-    (["assignee", "created_by"].includes(key) ||
-      ["in", "not_in"].includes(currentOperator))
-      ? ["is", "is_not", "in", "not_in", "empty", "not_empty"]
-      : byType[
-          type === "numeric"
-            ? "number"
-            : type === "phone"
-              ? "text"
-              : type === "datetime"
-                ? "date"
-                : type
-        ] || [];
-  return operators.map((value) => ({
-    value,
-    label: t(`automation_operator_${value}`),
-  }));
+  return automationOperatorOptions(fieldByKey(key), currentOperator, t);
 }
-function conditionFieldOptions(field, source, type) {
-  if (
-    ["user", "user_multi"].includes(field.type) &&
-    !["assignee", "created_by"].includes(field.key)
-  )
-    return filterMembersForField(
-      field,
-      source.workspace_metadata?.custom_field_members || [],
-    ).map((item) => ({
-      value: Number(item.user_id),
-      label: item.user_name,
-    }));
-  if (field.options?.length)
-    return field.options.map((item) => ({ value: item.key, label: item.name }));
-  const group = source.workspace_metadata?.[type] || {};
-  if (field.key === "status")
-    return (group.statuses || []).map((item) => ({
-      value: Number(item.id),
-      label: item.name,
-    }));
-  if (field.key === "priority")
-    return (group.priorities || []).map((item) => ({
-      value: Number(item.id),
-      label: item.label,
-    }));
-  if (["assignee", "created_by"].includes(field.key))
-    return (source.workspace_metadata?.members || []).map((item) => ({
-      value: Number(item.user_id),
-      label: item.user_name,
-    }));
-  if (field.key === "version")
-    return (source.workspace_metadata?.versions || []).map((item) => ({
-      value: Number(item.id),
-      label: item.name,
-    }));
-  return [];
-}
+
 function templateValid(template) {
   if (!template?.trim()) return false;
   const allowed = new Set(availableVariables.value.map((item) => item.key));
